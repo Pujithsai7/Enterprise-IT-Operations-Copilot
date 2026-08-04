@@ -20,12 +20,15 @@ st.set_page_config(
     layout="wide"
 )
 
-# Initialize Session State Knowledge Base as empty list
+# Initialize Session State
 if "knowledge_base" not in st.session_state:
-    st.session_state.knowledge_base = []
+    st.session_state["knowledge_base"] = []
 
 if "messages" not in st.session_state:
-    st.session_state.messages = []
+    st.session_state["messages"] = []
+
+if "current_analysis" not in st.session_state:
+    st.session_state["current_analysis"] = None
 
 # Initialize FAISS Vector Store
 @st.cache_resource
@@ -34,7 +37,15 @@ def get_faiss_vector_store():
 
 def sync_vector_index():
     vs = get_faiss_vector_store()
-    vs.build_index(st.session_state.knowledge_base)
+
+    if "knowledge_base" not in st.session_state:
+        st.session_state["knowledge_base"] = []
+
+    try:
+        vs.build_index(st.session_state["knowledge_base"])
+    except Exception as e:
+        st.error(f"Vector index build failed: {e}")
+
     return vs
 
 def extract_page_text(p):
@@ -111,17 +122,17 @@ def main():
         
         st.markdown("---")
         st.header("🧠 Conversation History")
-        st.write(f"Active Turns: **{len(st.session_state.messages)}**")
+        st.write(f"Active Turns: **{len(st.session_state['messages'])}**")
         if st.button("🧹 Clear Chat History", use_container_width=True):
-            st.session_state.messages = []
+            st.session_state["messages"] = []
             st.rerun()
 
         st.markdown("---")
         st.header("📁 Knowledge Base Stats")
-        st.write(f"Uploaded Files: **{len(st.session_state.knowledge_base)}**")
+        st.write(f"Uploaded Files: **{len(st.session_state['knowledge_base'])}**")
         st.write(f"FAISS Chunks: **{len(vector_store.chunks)}**")
         if st.button("🗑️ Clear Uploaded Files", use_container_width=True):
-            st.session_state.knowledge_base = []
+            st.session_state["knowledge_base"] = []
             sync_vector_index()
             st.rerun()
 
@@ -145,8 +156,8 @@ def main():
                 # Auto-detect category
                 auto_category = detect_document_category(f.name, full_text)
                 
-                new_id = len(st.session_state.knowledge_base) + 1
-                st.session_state.knowledge_base.append({
+                new_id = len(st.session_state["knowledge_base"]) + 1
+                st.session_state["knowledge_base"].append({
                     "id": new_id,
                     "source_type": auto_category,
                     "title": f.name,
@@ -163,16 +174,16 @@ def main():
             st.warning("Please select at least one file to upload.")
 
     # Display Currently Uploaded Files Only with Auto-Detected Category
-    if st.session_state.knowledge_base:
+    if st.session_state["knowledge_base"]:
         st.markdown("#### 📂 Currently Uploaded & Auto-Categorized Files")
-        for idx, item in enumerate(st.session_state.knowledge_base):
+        for idx, item in enumerate(st.session_state["knowledge_base"]):
             c1, c2 = st.columns([4, 1])
             with c1:
                 p_cnt = item.get('total_pages', 1)
                 st.write(f"🏷️ **Auto-Category: [{item['source_type']}]** | `{item['title']}` — {p_cnt} page(s) | {item.get('total_chars', len(item.get('content', '')))} characters")
             with c2:
                 if st.button("❌ Remove", key=f"del_{idx}"):
-                    st.session_state.knowledge_base.pop(idx)
+                    st.session_state["knowledge_base"].pop(idx)
                     sync_vector_index()
                     st.rerun()
     else:
@@ -187,7 +198,7 @@ def main():
     )
     
     if st.button("🔍 Run Multi-Agent Diagnosis", type="primary", use_container_width=True):
-        if not st.session_state.knowledge_base:
+        if not st.session_state["knowledge_base"]:
             st.error("No company files uploaded. Please upload your company files above first.")
             return
 
@@ -217,7 +228,7 @@ def main():
             planner = PlannerAgent()
             synth_res = planner.synthesize(
                 user_query, doc_res, net_res, log_res, inc_res,
-                chat_history=st.session_state.messages,
+                chat_history=st.session_state["messages"],
                 api_key=api_key,
                 model_choice=model_choice
             )
@@ -238,18 +249,18 @@ def main():
             status.update(label=f"Diagnosis & Validation Complete!", state="complete", expanded=False)
 
         # Store result in session state to display on current page
-        st.session_state.current_analysis = {
+        st.session_state["current_analysis"] = {
             "query": user_query,
             "response": final_response,
             "confidence": confidence_score,
             "validation": validation_results
         }
-        st.session_state.messages.append({"role": "user", "content": user_query})
-        st.session_state.messages.append({"role": "assistant", "content": final_response, "confidence": confidence_score})
+        st.session_state["messages"].append({"role": "user", "content": user_query})
+        st.session_state["messages"].append({"role": "assistant", "content": final_response, "confidence": confidence_score})
 
     # Display Current Result Analysis directly on Page
-    if "current_analysis" in st.session_state and st.session_state.current_analysis:
-        analysis = st.session_state.current_analysis
+    if "current_analysis" in st.session_state and st.session_state["current_analysis"]:
+        analysis = st.session_state["current_analysis"]
         st.markdown("---")
         st.subheader("📋 Diagnostic Result Analysis & Recommendation")
         
