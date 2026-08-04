@@ -3,8 +3,6 @@ numpy
 scikit-learn
 openai>=1.0.0
 faiss-cpu
-langchain
-langgraph
 pypdf
 python-docx
 sentence-transformers
