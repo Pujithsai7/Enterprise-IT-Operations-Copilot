@@ -14,21 +14,6 @@ from agents import (
 # PROJECT 3: ENTERPRISE IT OPERATIONS COPILOT (OPENAI / LOCAL ENGINE)
 # ==============================================================================
 
-st.set_page_config(
-    page_title="Enterprise IT Operations Copilot",
-    page_icon="⚡",
-    layout="wide"
-)
-
-# Initialize Session State
-if "knowledge_base" not in st.session_state:
-    st.session_state["knowledge_base"] = []
-
-if "messages" not in st.session_state:
-    st.session_state["messages"] = []
-
-if "current_analysis" not in st.session_state:
-    st.session_state["current_analysis"] = None
 
 # Initialize FAISS Vector Store
 @st.cache_resource
@@ -100,6 +85,22 @@ def render_validation_card(validation):
 
 # Main App
 def main():
+    st.set_page_config(
+        page_title="Enterprise IT Operations Copilot",
+        page_icon="⚡",
+        layout="wide"
+    )
+
+    # Initialize Session State inside main() execution flow
+    if "knowledge_base" not in st.session_state:
+        st.session_state["knowledge_base"] = []
+
+    if "messages" not in st.session_state:
+        st.session_state["messages"] = []
+
+    if "current_analysis" not in st.session_state:
+        st.session_state["current_analysis"] = None
+
     st.title("⚡ Enterprise IT Operations Copilot")
     st.caption("FAISS Embeddings RAG + Multi-Agent AI System with Auto-Category Detection & Validation Layer")
 
