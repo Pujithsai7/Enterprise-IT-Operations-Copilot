@@ -1,0 +1,10 @@
+streamlit>=1.30.0
+numpy
+scikit-learn
+openai>=1.0.0
+faiss-cpu
+langchain
+langgraph
+pypdf
+python-docx
+sentence-transformers
