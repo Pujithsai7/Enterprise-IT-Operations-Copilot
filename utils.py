@@ -1309,26 +1309,34 @@ FAISSVectorStore = HybridRetriever
 
 
 
-def parse_uploaded_file(uploaded_file):
-    filename = uploaded_file.name.lower()
+def parse_uploaded_file(uploaded_file, filename_override=None):
+    filename = (filename_override or getattr(uploaded_file, "filename", getattr(uploaded_file, "name", "file.txt"))).lower()
     pages = []
     try:
+        file_obj = getattr(uploaded_file, "file", uploaded_file)
         if filename.endswith(".pdf") and pypdf:
-            reader = pypdf.PdfReader(uploaded_file)
+            reader = pypdf.PdfReader(file_obj)
             for idx, page in enumerate(reader.pages):
                 txt = page.extract_text() or ""
                 if txt.strip():
                     pages.append({"page": idx + 1, "content": txt.strip()})
             if not pages:
-                pages = [{"page": 1, "content": f"[File: {uploaded_file.name} - Empty or non-text PDF]"}]
+                pages = [{"page": 1, "content": f"[File: {filename} - Empty or non-text PDF]"}]
         elif filename.endswith(".docx") and docx:
-            doc = docx.Document(uploaded_file)
+            doc = docx.Document(file_obj)
             text = "\n".join([p.text for p in doc.paragraphs]).strip()
-            pages = [{"page": 1, "content": text if text else f"[File: {uploaded_file.name} - Empty DOCX]"}]
+            pages = [{"page": 1, "content": text if text else f"[File: {filename} - Empty DOCX]"}]
         else:
-            raw_bytes = uploaded_file.read()
-            text = raw_bytes.decode("utf-8", errors="ignore").strip()
-            pages = [{"page": 1, "content": text if text else f"[File: {uploaded_file.name} - Empty text file]"}]
+            if hasattr(file_obj, "read"):
+                raw_bytes = file_obj.read()
+            else:
+                raw_bytes = str(file_obj).encode("utf-8")
+            if isinstance(raw_bytes, str):
+                text = raw_bytes.strip()
+            else:
+                text = raw_bytes.decode("utf-8", errors="ignore").strip()
+            pages = [{"page": 1, "content": text if text else f"[File: {filename} - Empty text file]"}]
     except Exception as e:
-        pages = [{"page": 1, "content": f"[Error reading file {uploaded_file.name}: {str(e)}]"}]
+        pages = [{"page": 1, "content": f"[Error reading file {filename}: {str(e)}]"}]
     return pages
+

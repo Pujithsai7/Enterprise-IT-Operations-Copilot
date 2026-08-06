@@ -1,52 +1,20 @@
 import time
+import requests
 import streamlit as st
 
-from utils import parse_uploaded_file, detect_document_category, FAISSVectorStore
-from agents import (
-    DocumentationAgent,
-    NetworkAgent,
-    LogAnalysisAgent,
-    IncidentAgent,
-    PlannerAgent,
-    SupervisorAgent,
-    build_copilot_graph
-)
+# FastAPI Backend API Configuration
+BACKEND_URL = "http://127.0.0.1:8000"
 
-
-# ==============================================================================
-# PROJECT 3: ENTERPRISE IT OPERATIONS COPILOT (OPENAI / LOCAL ENGINE)
-# ==============================================================================
-
-
-# Initialize FAISS Vector Store
-@st.cache_resource
-def get_faiss_vector_store():
-    return FAISSVectorStore()
-
-def sync_vector_index():
-    vs = get_faiss_vector_store()
-
-    if "knowledge_base" not in st.session_state:
-        st.session_state["knowledge_base"] = []
-
+def get_backend_health():
     try:
-        vs.build_index(st.session_state["knowledge_base"])
-    except Exception as e:
-        st.error(f"Vector index build failed: {e}")
-
-    return vs
-
-def extract_page_text(p):
-    if isinstance(p, dict):
-        return p.get('content', '')
-    elif isinstance(p, str):
-        return p
-    return str(p)
+        r = requests.get(f"{BACKEND_URL}/health", timeout=3)
+        if r.status_code == 200:
+            return r.json()
+    except Exception:
+        pass
+    return None
 
 def render_confidence_badge(score, validation=None):
-    """
-    Renders visual confidence score indicator with engineering thresholds & validation details.
-    """
     if score >= 90:
         color = "#2E7D32"
         label = f"Diagnostic Confidence: High ({score}%) - Explicit Error Confirmed"
@@ -69,34 +37,31 @@ def render_confidence_badge(score, validation=None):
     </div>
     """, unsafe_allow_html=True)
 
-def render_validation_card(validation):
-    """
-    Renders Diagnostic Validation Layer Audit results.
-    """
-    if not validation:
+def render_evaluation_card(validation):
+    if not validation or "eval_results" not in validation:
         return
-    fault_str = "⚠️ Error/Fault Keywords Detected" if validation.get("is_actual_error") else "✅ Operational Status Normal (No Error Keywords)"
-    suff_str = "✅ Sufficient Context" if validation.get("is_evidence_sufficient") else "⚠️ Insufficient Context"
-    category = validation.get("error_category", "General Technical Analysis")
+    eval_res = validation["eval_results"]
+    st.markdown(f"""
+### 📊 RAG Evaluation Framework Report
 
-    st.info(f"""
-    **🛡️ Diagnostic Validation Layer Audit**
-    - **Fault Detected**: {fault_str}
-    - **Evidence Sufficiency**: {suff_str}
-    - **Category**: `{category}`
-    """)
+| Metric | Score | Status |
+| :--- | :--- | :--- |
+| **RAGAS Score** | `{eval_res['ragas_score']}` | {'✅ PASS' if eval_res['ragas_score'] >= 0.7 else '⚠️ WARN'} |
+| **Faithfulness** | `{int(eval_res['faithfulness'] * 100)}%` | ✅ Grounded Claims |
+| **Context Precision** | `{int(eval_res['context_precision'] * 100)}%` | ✅ High Precision |
+| **Context Recall** | `{int(eval_res['context_recall'] * 100)}%` | ✅ Relevant Context |
+| **Answer Relevance** | `{int(eval_res['answer_relevance'] * 100)}%` | ✅ Query Aligned |
+| **Citation Accuracy** | `{int(eval_res['citation_accuracy'] * 100)}%` | ✅ Verified Citations |
+| **Groundedness** | `{int(eval_res['groundedness'] * 100)}%` | ✅ Evidence Supported |
+| **Hallucination Rate** | `{eval_res['hallucination_rate']}%` | {'✅ Low (<15%)' if eval_res['hallucination_rate'] <= 15 else '⚠️ Elevated'} |
+""")
 
-# Main App
 def main():
     st.set_page_config(
-        page_title="Enterprise IT Operations Copilot",
+        page_title="Enterprise IT Operations Copilot Frontend",
         page_icon="⚡",
         layout="wide"
     )
-
-    # Initialize Session State inside main() execution flow
-    if "knowledge_base" not in st.session_state:
-        st.session_state["knowledge_base"] = []
 
     if "messages" not in st.session_state:
         st.session_state["messages"] = []
@@ -104,13 +69,19 @@ def main():
     if "current_analysis" not in st.session_state:
         st.session_state["current_analysis"] = None
 
+    if "uploaded_filenames" not in st.session_state:
+        st.session_state["uploaded_filenames"] = []
+
     st.title("⚡ Enterprise IT Operations Copilot")
-    st.caption("FAISS Embeddings RAG + Multi-Agent AI System with Auto-Category Detection & Validation Layer")
+    st.caption("Decoupled Architecture: Streamlit Frontend ➔ FastAPI Backend ➔ LangGraph Multi-Agent Workflows")
 
-    # Sync FAISS vector store with active knowledge base
-    vector_store = sync_vector_index()
+    # Check FastAPI Backend Health
+    health = get_backend_health()
+    if not health:
+        st.error("⚠️ FastAPI Backend Service (`http://127.0.0.1:8000`) is offline. Please launch the FastAPI server via `uvicorn api:app --reload`.")
+        st.info("💡 To start the backend: run `python -m uvicorn api:app --port 8000` in your terminal.")
 
-    # Sidebar: Settings & Model Selection
+    # Sidebar: Settings & Engine Selection
     with st.sidebar:
         st.header("⚙️ Settings & Engine")
         
@@ -132,7 +103,15 @@ def main():
             ]
         )
 
-        
+        st.markdown("---")
+        st.header("🌐 Backend Service Stats")
+        if health:
+            st.success(f"Status: **ONLINE**")
+            st.write(f"Indexed Chunks: **{health.get('vector_chunks', 0)}**")
+            st.write(f"Default LLM: `{health.get('primary_model', 'kimi-k2.7-code:cloud')}`")
+        else:
+            st.error("Status: **OFFLINE**")
+
         st.markdown("---")
         st.header("🧠 Conversation History")
         st.write(f"Active Turns: **{len(st.session_state['messages'])}**")
@@ -141,16 +120,18 @@ def main():
             st.rerun()
 
         st.markdown("---")
-        st.header("📁 Knowledge Base Stats")
-        st.write(f"Uploaded Files: **{len(st.session_state['knowledge_base'])}**")
-        st.write(f"FAISS Chunks: **{len(vector_store.chunks)}**")
-        if st.button("🗑️ Clear Uploaded Files", use_container_width=True):
-            st.session_state["knowledge_base"] = []
-            sync_vector_index()
-            st.rerun()
+        if st.button("🗑️ Clear Vector Database", use_container_width=True):
+            try:
+                r = requests.post(f"{BACKEND_URL}/clear", timeout=5)
+                if r.status_code == 200:
+                    st.session_state["uploaded_filenames"] = []
+                    st.success("Vector Store Cleared via FastAPI Backend!")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Failed to clear backend: {e}")
 
-    # Section 1: Upload Company Files (Auto-Detect Category)
-    st.subheader("1️⃣ Upload Company Files (Auto-Category Detection)")
+    # Section 1: Upload Company Files (Decoupled API Upload)
+    st.subheader("1️⃣ Upload Company Files (FastAPI Service Processing)")
     
     uploaded_files = st.file_uploader(
         "Upload Company Files (PDF, DOCX, TXT, LOG, CSV)",
@@ -158,49 +139,32 @@ def main():
         accept_multiple_files=True
     )
     
-    if st.button("⚡ Auto-Detect Category, Chunk & Index into FAISS", type="primary", use_container_width=True):
+    if st.button("⚡ Upload & Index via FastAPI Backend", type="primary", use_container_width=True):
         if uploaded_files:
-            count = 0
+            files_payload = []
             for f in uploaded_files:
-                pages = parse_uploaded_file(f)
-                full_text = "\n".join([extract_page_text(p) for p in pages])
-                total_chars = len(full_text)
-                
-                # Auto-detect category
-                auto_category = detect_document_category(f.name, full_text)
-                
-                new_id = len(st.session_state["knowledge_base"]) + 1
-                st.session_state["knowledge_base"].append({
-                    "id": new_id,
-                    "source_type": auto_category,
-                    "title": f.name,
-                    "pages": pages,
-                    "content": full_text,
-                    "total_pages": len(pages),
-                    "total_chars": total_chars
-                })
-                count += 1
-            sync_vector_index()
-            st.success(f"Successfully auto-categorized & indexed {count} file(s) into FAISS Vector Store ({len(vector_store.chunks)} total chunks)!")
-            st.rerun()
+                files_payload.append(("files", (f.name, f.read(), f.type)))
+            
+            with st.spinner("FastAPI Backend is parsing, zero-shot categorizing, and indexing into Qdrant Vector Store..."):
+                try:
+                    res = requests.post(f"{BACKEND_URL}/upload", files=files_payload, timeout=60)
+                    if res.status_code == 200:
+                        data = res.json()
+                        for f in uploaded_files:
+                            if f.name not in st.session_state["uploaded_filenames"]:
+                                st.session_state["uploaded_filenames"].append(f.name)
+                        st.success(f"FastAPI Backend successfully indexed {data.get('uploaded_files_count')} file(s) into Qdrant Vector Store ({data.get('total_vector_chunks')} total chunks)!")
+                    else:
+                        st.error(f"Upload failed: {res.text}")
+                except Exception as e:
+                    st.error(f"Backend Connection Error: {str(e)}")
         else:
             st.warning("Please select at least one file to upload.")
 
-    # Display Currently Uploaded Files Only with Auto-Detected Category
-    if st.session_state["knowledge_base"]:
-        st.markdown("#### 📂 Currently Uploaded & Auto-Categorized Files")
-        for idx, item in enumerate(st.session_state["knowledge_base"]):
-            c1, c2 = st.columns([4, 1])
-            with c1:
-                p_cnt = item.get('total_pages', 1)
-                st.write(f"🏷️ **Auto-Category: [{item['source_type']}]** | `{item['title']}` — {p_cnt} page(s) | {item.get('total_chars', len(item.get('content', '')))} characters")
-            with c2:
-                if st.button("❌ Remove", key=f"del_{idx}"):
-                    st.session_state["knowledge_base"].pop(idx)
-                    sync_vector_index()
-                    st.rerun()
-    else:
-        st.info("ℹ️ No company files uploaded yet. Upload files above to automatically detect their categories and index into FAISS.")
+    if st.session_state["uploaded_filenames"]:
+        st.markdown("#### 📂 Currently Uploaded Files")
+        for fn in st.session_state["uploaded_filenames"]:
+            st.write(f"📄 `{fn}`")
 
     st.markdown("---")
     st.subheader("2️⃣ IT Infrastructure Query & Diagnosis")
@@ -210,67 +174,57 @@ def main():
         placeholder="e.g. Is there any error in the uploaded log? / Why is Switch-45 unreachable?"
     )
     
-    if st.button("🔍 Run Multi-Agent Diagnosis", type="primary", use_container_width=True):
-        if not st.session_state["knowledge_base"]:
-            st.error("No company files uploaded. Please upload your company files above first.")
-            return
-
+    if st.button("🔍 Run Multi-Agent Diagnosis via FastAPI", type="primary", use_container_width=True):
         if not user_query.strip():
             st.warning("Please enter a query.")
             return
 
-        with st.status(f"Executing LangGraph Multi-Agent Workflow via {model_choice}...", expanded=True) as status:
-            st.write("🌐 **Step 1: Instantiating LangGraph Multi-Agent Supervisor Graph**")
-            copilot_graph = build_copilot_graph(vector_store)
+        with st.status(f"Executing LangGraph Multi-Agent Workflow via FastAPI Backend ({model_choice})...", expanded=True) as status:
+            st.write("📡 **Step 1: Sending REST Request to FastAPI Endpoint (`POST /diagnose`)**")
             
-            initial_state = {
+            payload = {
                 "query": user_query,
                 "chat_history": st.session_state["messages"],
-                "doc_evidence": [],
-                "net_evidence": [],
-                "log_evidence": [],
-                "inc_evidence": [],
-                "validation_results": {},
-                "confidence_score": 0,
-                "executed_agents": [],
-                "next_agent": "Supervisor",
-                "final_response": "",
                 "api_key": api_key,
                 "model_choice": model_choice
             }
-            
-            st.write("🤖 **Step 2: Supervisor Routing & Sub-Agent Execution**")
-            final_state = copilot_graph.invoke(initial_state)
-            
-            executed_chain = " ➔ ".join(final_state.get("executed_agents", []))
-            st.write(f"  • Execution Path: `{executed_chain}`")
-            
-            final_response = final_state.get("final_response", "Diagnosis synthesis failed.")
-            validation_results = final_state.get("validation_results", {})
-            confidence_score = final_state.get("confidence_score", 85)
 
-            st.write(f"🧠 **Step 3: Diagnostic Validation & Synthesis Complete**")
-            status.update(label="LangGraph Workflow Execution Complete!", state="complete", expanded=False)
+            try:
+                res = requests.post(f"{BACKEND_URL}/diagnose", json=payload, timeout=120)
+                if res.status_code == 200:
+                    data = res.json()
+                    executed_chain = " ➔ ".join(data.get("executed_agents", []))
+                    st.write(f"🤖 **Step 2: LangGraph Executed Agent Path**: `{executed_chain}`")
+                    
+                    final_response = data.get("final_response", "")
+                    validation_results = data.get("validation_results", {})
+                    confidence_score = data.get("confidence_score", 85)
 
+                    status.update(label="FastAPI Multi-Agent Diagnosis Complete!", state="complete", expanded=False)
 
-        # Store result in session state to display on current page
-        st.session_state["current_analysis"] = {
-            "query": user_query,
-            "response": final_response,
-            "confidence": confidence_score,
-            "validation": validation_results
-        }
-        st.session_state["messages"].append({"role": "user", "content": user_query})
-        st.session_state["messages"].append({"role": "assistant", "content": final_response, "confidence": confidence_score})
+                    st.session_state["current_analysis"] = {
+                        "query": user_query,
+                        "response": final_response,
+                        "confidence": confidence_score,
+                        "validation": validation_results
+                    }
+                    st.session_state["messages"].append({"role": "user", "content": user_query})
+                    st.session_state["messages"].append({"role": "assistant", "content": final_response, "confidence": confidence_score})
+                else:
+                    st.error(f"FastAPI Diagnosis Error: {res.text}")
+                    status.update(label="Diagnosis Failed", state="error")
+            except Exception as e:
+                st.error(f"Failed to connect to FastAPI backend: {str(e)}")
+                status.update(label="Connection Failed", state="error")
 
-    # Display Current Result Analysis directly on Page
+    # Display Current Result Analysis
     if "current_analysis" in st.session_state and st.session_state["current_analysis"]:
         analysis = st.session_state["current_analysis"]
         st.markdown("---")
         st.subheader("📋 Diagnostic Result Analysis & Recommendation")
         
-        # 1. Validation Layer Audit Card
-        render_validation_card(analysis.get("validation"))
+        # 1. RAG Evaluation Framework Score Card
+        render_evaluation_card(analysis.get("validation"))
 
         # 2. Confidence Score Badge
         render_confidence_badge(analysis["confidence"], analysis.get("validation"))
