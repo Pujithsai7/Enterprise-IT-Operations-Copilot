@@ -401,5 +401,76 @@
       "status": "WARN"
     },
     "status": "success"
+  },
+  {
+    "trace_name": "Copilot_MultiAgent_Workflow",
+    "total_latency_ms": 1074.74,
+    "inputs": {
+      "query": "What are the system management features available on Cisco Catalyst 9300 switches?"
+    },
+    "events": [
+      {
+        "type": "agent_execution",
+        "agent": "NetworkAgent",
+        "status": "success",
+        "latency_ms": 179.12,
+        "timestamp": 1786010935.4254794
+      },
+      {
+        "type": "agent_execution",
+        "agent": "LogAnalysisAgent",
+        "status": "success",
+        "latency_ms": 179.12,
+        "timestamp": 1786010935.4254794
+      },
+      {
+        "type": "agent_execution",
+        "agent": "DocumentationAgent",
+        "status": "success",
+        "latency_ms": 179.12,
+        "timestamp": 1786010935.4254794
+      },
+      {
+        "type": "agent_execution",
+        "agent": "IncidentAgent",
+        "status": "success",
+        "latency_ms": 179.12,
+        "timestamp": 1786010935.4254794
+      },
+      {
+        "type": "agent_execution",
+        "agent": "ValidatorAgent",
+        "status": "success",
+        "latency_ms": 179.12,
+        "timestamp": 1786010935.4254794
+      },
+      {
+        "type": "agent_execution",
+        "agent": "PlannerAgent",
+        "status": "success",
+        "latency_ms": 179.12,
+        "timestamp": 1786010935.4254794
+      },
+      {
+        "type": "retriever_performance",
+        "query": "What are the system management features available on Cisco Catalyst 9300 switches?",
+        "chunk_count": 21,
+        "avg_relevance_score": 0.0002,
+        "latency_ms": 322.42,
+        "timestamp": 1786010935.4254794
+      }
+    ],
+    "eval_metrics": {
+      "ragas_score": 0.42,
+      "faithfulness": 0.47,
+      "context_precision": 0.1,
+      "context_recall": 0.11,
+      "answer_relevance": 1.0,
+      "citation_accuracy": 0.94,
+      "groundedness": 0.47,
+      "hallucination_rate": 53.0,
+      "status": "WARN"
+    },
+    "status": "success"
   }
 ]

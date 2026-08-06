@@ -31,7 +31,10 @@ def test_api_upload_endpoint(api_client):
 def test_api_diagnose_endpoint(api_client):
     payload = {
         "query": "Why is GigabitEthernet0/1 down?",
-        "chat_history": [],
+        "chat_history": [
+            {"role": "user", "content": "Check port status"},
+            {"role": "assistant", "content": "Port GigabitEthernet0/1 is down", "confidence": 65}
+        ],
         "model_choice": "kimi-k2.7-code:cloud"
     }
     res = api_client.post("/diagnose", json=payload)
@@ -39,6 +42,13 @@ def test_api_diagnose_endpoint(api_client):
     data = res.json()
     assert "final_response" in data
     assert "confidence_score" in data
+
+def test_api_diagnose_empty_query_rejection(api_client):
+    payload = {"query": "   ", "chat_history": []}
+    res = api_client.post("/diagnose", json=payload)
+    assert res.status_code == 400
+    assert "Query cannot be empty" in res.json().get("detail", "")
+
 
 def test_api_key_encryption():
     raw_key = "sk-proj-test-key-12345"

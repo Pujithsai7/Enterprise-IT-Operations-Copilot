@@ -1,6 +1,6 @@
 import os
 import uvicorn
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
@@ -38,11 +38,17 @@ app.add_middleware(
 vector_store = FAISSVectorStore()
 document_registry = DocumentRegistry()
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+    confidence: Optional[Union[int, float, str]] = None
+
 class DiagnoseRequest(BaseModel):
     query: str
-    chat_history: Optional[List[Dict[str, str]]] = []
+    chat_history: Optional[List[Dict[str, Any]]] = []
     api_key: Optional[str] = None
     model_choice: Optional[str] = "kimi-k2.7-code:cloud"
+
 
 class DiagnoseResponse(BaseModel):
     query: str
