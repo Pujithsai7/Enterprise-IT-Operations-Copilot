@@ -56,7 +56,26 @@ def render_evaluation_card(validation):
 | **Hallucination Rate** | `{eval_res['hallucination_rate']}%` | {'✅ Low (<15%)' if eval_res['hallucination_rate'] <= 15 else '⚠️ Elevated'} |
 """)
 
+def render_langsmith_card():
+    """
+    Renders live LangSmith observability traces, agent latency, and retriever performance metrics.
+    """
+    try:
+        r = requests.get(f"{BACKEND_URL}/traces", timeout=3)
+        if r.status_code == 200 and r.json():
+            traces = r.json()
+            latest = traces[-1]
+            st.info(f"""
+            **🛠️ LangSmith Observability & Performance Trace**
+            - **Trace Name**: `{latest.get('trace_name')}`
+            - **Total Execution Latency**: `{latest.get('total_latency_ms')} ms`
+            - **Traced Events Logged**: `{len(latest.get('events', []))}` event(s)
+            """)
+    except Exception:
+        pass
+
 def main():
+
     st.set_page_config(
         page_title="Enterprise IT Operations Copilot Frontend",
         page_icon="⚡",
@@ -179,13 +198,16 @@ def main():
             st.warning("Please enter a query.")
             return
 
+        from security import APIKeyEncrypter
+        encrypted_key = APIKeyEncrypter.encrypt_api_key(api_key) if api_key else ""
+
         with st.status(f"Executing LangGraph Multi-Agent Workflow via FastAPI Backend ({model_choice})...", expanded=True) as status:
-            st.write("📡 **Step 1: Sending REST Request to FastAPI Endpoint (`POST /diagnose`)**")
+            st.write("🔒 **Step 1: Encrypting API Key & Validating Query Security (Prompt Injection Guard)**")
             
             payload = {
                 "query": user_query,
                 "chat_history": st.session_state["messages"],
-                "api_key": api_key,
+                "api_key": encrypted_key,
                 "model_choice": model_choice
             }
 
@@ -210,12 +232,17 @@ def main():
                     }
                     st.session_state["messages"].append({"role": "user", "content": user_query})
                     st.session_state["messages"].append({"role": "assistant", "content": final_response, "confidence": confidence_score})
+                elif res.status_code == 400:
+                    err_msg = res.json().get("detail", res.text)
+                    st.error(f"🛡️ Security Block: {err_msg}")
+                    status.update(label="Blocked by Security Guard", state="error")
                 else:
                     st.error(f"FastAPI Diagnosis Error: {res.text}")
                     status.update(label="Diagnosis Failed", state="error")
             except Exception as e:
                 st.error(f"Failed to connect to FastAPI backend: {str(e)}")
                 status.update(label="Connection Failed", state="error")
+
 
     # Display Current Result Analysis
     if "current_analysis" in st.session_state and st.session_state["current_analysis"]:
@@ -226,8 +253,12 @@ def main():
         # 1. RAG Evaluation Framework Score Card
         render_evaluation_card(analysis.get("validation"))
 
-        # 2. Confidence Score Badge
+        # 2. LangSmith Observability Trace Card
+        render_langsmith_card()
+
+        # 3. Confidence Score Badge
         render_confidence_badge(analysis["confidence"], analysis.get("validation"))
+
         
         # 3. Main Response (Cause, Evidence, Recommended Fix, Citations)
         st.markdown(analysis["response"])
