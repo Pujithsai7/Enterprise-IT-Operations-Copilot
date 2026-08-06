@@ -960,29 +960,46 @@ class QdrantPersistentVectorStore:
             )
 
         try:
-            hits = self.client.search(
-                collection_name=self.COLLECTION_NAME,
-                query_vector=q_emb,
-                query_filter=query_filter,
-                limit=top_k
-            )
-            
-            if not hits and query_filter:
+            hits = []
+            if hasattr(self.client, "query_points"):
+                q_res = self.client.query_points(
+                    collection_name=self.COLLECTION_NAME,
+                    query=q_emb,
+                    query_filter=query_filter,
+                    limit=top_k
+                )
+                hits = q_res.points
+                if not hits and query_filter:
+                    q_res = self.client.query_points(
+                        collection_name=self.COLLECTION_NAME,
+                        query=q_emb,
+                        limit=top_k
+                    )
+                    hits = q_res.points
+            elif hasattr(self.client, "search"):
                 hits = self.client.search(
                     collection_name=self.COLLECTION_NAME,
                     query_vector=q_emb,
+                    query_filter=query_filter,
                     limit=top_k
                 )
+                if not hits and query_filter:
+                    hits = self.client.search(
+                        collection_name=self.COLLECTION_NAME,
+                        query_vector=q_emb,
+                        limit=top_k
+                    )
 
             results = []
             for hit in hits:
                 chunk = dict(hit.payload or {})
-                chunk['score'] = float(hit.score)
+                chunk['score'] = float(getattr(hit, 'score', 0.0))
                 results.append(chunk)
 
             return results
         except Exception:
             return []
+
 
     def delete_document(self, doc_id):
         """
