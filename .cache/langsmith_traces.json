@@ -756,5 +756,218 @@
       "status": "WARN"
     },
     "status": "success"
+  },
+  {
+    "trace_name": "Copilot_MultiAgent_Workflow",
+    "total_latency_ms": 1289.64,
+    "inputs": {
+      "query": "How do I disable HTTP access?"
+    },
+    "events": [
+      {
+        "type": "agent_execution",
+        "agent": "NetworkAgent",
+        "status": "success",
+        "latency_ms": 214.94,
+        "timestamp": 1786011709.4268582
+      },
+      {
+        "type": "agent_execution",
+        "agent": "LogAnalysisAgent",
+        "status": "success",
+        "latency_ms": 214.94,
+        "timestamp": 1786011709.4268582
+      },
+      {
+        "type": "agent_execution",
+        "agent": "DocumentationAgent",
+        "status": "success",
+        "latency_ms": 214.94,
+        "timestamp": 1786011709.4268582
+      },
+      {
+        "type": "agent_execution",
+        "agent": "IncidentAgent",
+        "status": "success",
+        "latency_ms": 214.94,
+        "timestamp": 1786011709.4268582
+      },
+      {
+        "type": "agent_execution",
+        "agent": "ValidatorAgent",
+        "status": "success",
+        "latency_ms": 214.94,
+        "timestamp": 1786011709.4268582
+      },
+      {
+        "type": "agent_execution",
+        "agent": "PlannerAgent",
+        "status": "success",
+        "latency_ms": 214.94,
+        "timestamp": 1786011709.4268582
+      },
+      {
+        "type": "retriever_performance",
+        "query": "How do I disable HTTP access?",
+        "chunk_count": 5,
+        "avg_relevance_score": 0.0,
+        "latency_ms": 386.89,
+        "timestamp": 1786011709.4268582
+      }
+    ],
+    "eval_metrics": {
+      "ragas_score": 0.3,
+      "faithfulness": 0.2,
+      "context_precision": 0.0,
+      "context_recall": 0.0,
+      "answer_relevance": 1.0,
+      "citation_accuracy": 0.75,
+      "groundedness": 0.2,
+      "hallucination_rate": 80.0,
+      "status": "WARN"
+    },
+    "status": "success"
+  },
+  {
+    "trace_name": "Copilot_MultiAgent_Workflow",
+    "total_latency_ms": 946.32,
+    "inputs": {
+      "query": "How do I configure the system clock?"
+    },
+    "events": [
+      {
+        "type": "agent_execution",
+        "agent": "NetworkAgent",
+        "status": "success",
+        "latency_ms": 157.72,
+        "timestamp": 1786011831.04065
+      },
+      {
+        "type": "agent_execution",
+        "agent": "LogAnalysisAgent",
+        "status": "success",
+        "latency_ms": 157.72,
+        "timestamp": 1786011831.04065
+      },
+      {
+        "type": "agent_execution",
+        "agent": "DocumentationAgent",
+        "status": "success",
+        "latency_ms": 157.72,
+        "timestamp": 1786011831.04065
+      },
+      {
+        "type": "agent_execution",
+        "agent": "IncidentAgent",
+        "status": "success",
+        "latency_ms": 157.72,
+        "timestamp": 1786011831.04065
+      },
+      {
+        "type": "agent_execution",
+        "agent": "ValidatorAgent",
+        "status": "success",
+        "latency_ms": 157.72,
+        "timestamp": 1786011831.04065
+      },
+      {
+        "type": "agent_execution",
+        "agent": "PlannerAgent",
+        "status": "success",
+        "latency_ms": 157.72,
+        "timestamp": 1786011831.04065
+      },
+      {
+        "type": "retriever_performance",
+        "query": "How do I configure the system clock?",
+        "chunk_count": 5,
+        "avg_relevance_score": 0.0,
+        "latency_ms": 283.9,
+        "timestamp": 1786011831.04065
+      }
+    ],
+    "eval_metrics": {
+      "ragas_score": 0.3,
+      "faithfulness": 0.2,
+      "context_precision": 0.0,
+      "context_recall": 0.0,
+      "answer_relevance": 1.0,
+      "citation_accuracy": 0.75,
+      "groundedness": 0.2,
+      "hallucination_rate": 80.0,
+      "status": "WARN"
+    },
+    "status": "success"
+  },
+  {
+    "trace_name": "Copilot_MultiAgent_Workflow",
+    "total_latency_ms": 902.02,
+    "inputs": {
+      "query": "How do I verify NTP synchronization?"
+    },
+    "events": [
+      {
+        "type": "agent_execution",
+        "agent": "NetworkAgent",
+        "status": "success",
+        "latency_ms": 150.34,
+        "timestamp": 1786011856.561944
+      },
+      {
+        "type": "agent_execution",
+        "agent": "LogAnalysisAgent",
+        "status": "success",
+        "latency_ms": 150.34,
+        "timestamp": 1786011856.561944
+      },
+      {
+        "type": "agent_execution",
+        "agent": "DocumentationAgent",
+        "status": "success",
+        "latency_ms": 150.34,
+        "timestamp": 1786011856.561944
+      },
+      {
+        "type": "agent_execution",
+        "agent": "IncidentAgent",
+        "status": "success",
+        "latency_ms": 150.34,
+        "timestamp": 1786011856.561944
+      },
+      {
+        "type": "agent_execution",
+        "agent": "ValidatorAgent",
+        "status": "success",
+        "latency_ms": 150.34,
+        "timestamp": 1786011856.561944
+      },
+      {
+        "type": "agent_execution",
+        "agent": "PlannerAgent",
+        "status": "success",
+        "latency_ms": 150.34,
+        "timestamp": 1786011856.561944
+      },
+      {
+        "type": "retriever_performance",
+        "query": "How do I verify NTP synchronization?",
+        "chunk_count": 5,
+        "avg_relevance_score": 0.0,
+        "latency_ms": 270.61,
+        "timestamp": 1786011856.561944
+      }
+    ],
+    "eval_metrics": {
+      "ragas_score": 0.3,
+      "faithfulness": 0.2,
+      "context_precision": 0.0,
+      "context_recall": 0.0,
+      "answer_relevance": 1.0,
+      "citation_accuracy": 0.75,
+      "groundedness": 0.2,
+      "hallucination_rate": 80.0,
+      "status": "WARN"
+    },
+    "status": "success"
   }
 ]
