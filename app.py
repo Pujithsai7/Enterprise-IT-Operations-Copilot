@@ -7,8 +7,11 @@ from agents import (
     NetworkAgent,
     LogAnalysisAgent,
     IncidentAgent,
-    PlannerAgent
+    PlannerAgent,
+    SupervisorAgent,
+    build_copilot_graph
 )
+
 
 # ==============================================================================
 # PROJECT 3: ENTERPRISE IT OPERATIONS COPILOT (OPENAI / LOCAL ENGINE)
@@ -207,47 +210,39 @@ def main():
             st.warning("Please enter a query.")
             return
 
-        with st.status(f"Executing Pipeline (Retriever -> Validation Layer -> Planner) via {model_choice}...", expanded=True) as status:
-            st.write("⚡ **Step 1: FAISS Vector Retrieval across Sub-Agents**")
-            time.sleep(0.2)
+        with st.status(f"Executing LangGraph Multi-Agent Workflow via {model_choice}...", expanded=True) as status:
+            st.write("🌐 **Step 1: Instantiating LangGraph Multi-Agent Supervisor Graph**")
+            copilot_graph = build_copilot_graph(vector_store)
             
-            doc_agent = DocumentationAgent()
-            net_agent = NetworkAgent()
-            log_agent = LogAnalysisAgent()
-            inc_agent = IncidentAgent()
+            initial_state = {
+                "query": user_query,
+                "chat_history": st.session_state["messages"],
+                "doc_evidence": [],
+                "net_evidence": [],
+                "log_evidence": [],
+                "inc_evidence": [],
+                "validation_results": {},
+                "confidence_score": 0,
+                "executed_agents": [],
+                "next_agent": "Supervisor",
+                "final_response": "",
+                "api_key": api_key,
+                "model_choice": model_choice
+            }
             
-            doc_res = doc_agent.execute(user_query, vector_store)
-            net_res = net_agent.execute(user_query, vector_store)
-            log_res = log_agent.execute(user_query, vector_store)
-            inc_res = inc_agent.execute(user_query, vector_store)
+            st.write("🤖 **Step 2: Supervisor Routing & Sub-Agent Execution**")
+            final_state = copilot_graph.invoke(initial_state)
             
-            st.write(f"  • Matched {len(doc_res)+len(net_res)+len(log_res)+len(inc_res)} chunk(s) across sub-agents")
+            executed_chain = " ➔ ".join(final_state.get("executed_agents", []))
+            st.write(f"  • Execution Path: `{executed_chain}`")
             
-            st.write("🛡️ **Step 2: Diagnostic Validation Layer Audit**")
-            time.sleep(0.2)
-            
-            planner = PlannerAgent()
-            synth_res = planner.synthesize(
-                user_query, doc_res, net_res, log_res, inc_res,
-                chat_history=st.session_state["messages"],
-                api_key=api_key,
-                model_choice=model_choice
-            )
-            
-            if isinstance(synth_res, tuple) and len(synth_res) >= 2:
-                final_response, validation_results = synth_res[0], synth_res[1]
-                confidence_score = validation_results.get("confidence_score", 85)
-            elif isinstance(synth_res, tuple) and len(synth_res) == 1:
-                final_response = synth_res[0]
-                validation_results = {}
-                confidence_score = 85
-            else:
-                final_response = str(synth_res)
-                validation_results = {}
-                confidence_score = 85
+            final_response = final_state.get("final_response", "Diagnosis synthesis failed.")
+            validation_results = final_state.get("validation_results", {})
+            confidence_score = final_state.get("confidence_score", 85)
 
-            st.write(f"🧠 **Step 3: Planner Synthesis via {model_choice}**")
-            status.update(label=f"Diagnosis & Validation Complete!", state="complete", expanded=False)
+            st.write(f"🧠 **Step 3: Diagnostic Validation & Synthesis Complete**")
+            status.update(label="LangGraph Workflow Execution Complete!", state="complete", expanded=False)
+
 
         # Store result in session state to display on current page
         st.session_state["current_analysis"] = {

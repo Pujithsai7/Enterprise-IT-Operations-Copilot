@@ -6,3 +6,8 @@ faiss-cpu
 pypdf
 python-docx
 sentence-transformers
+qdrant-client
+flashrank
+rank-bm25
+langgraph
+langchain-core

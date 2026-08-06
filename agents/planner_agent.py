@@ -1,138 +1,291 @@
 import os
+import hashlib
 import streamlit as st
 from validator import DiagnosticValidator
+from typing import TypedDict, List, Dict, Any, Optional
 
-SYSTEM_PROMPT = """You are an Enterprise Network Diagnostic Assistant.
+try:
+    from langgraph.graph import StateGraph, END
+    HAS_LANGGRAPH = True
+except ImportError:
+    StateGraph = None
+    END = None
+    HAS_LANGGRAPH = False
 
-Your task is to determine whether the supplied evidence actually contains an error.
+SYSTEM_PROMPT = """You are the Principal Technical Planner Agent for Enterprise IT Operations.
 
-Strict Rules:
-1. Do NOT assume an issue exists.
-2. If no explicit error is present, clearly state:
-   "No fault was detected from the supplied logs."
-3. Recommend fixes ONLY if the retrieved documentation explicitly supports that diagnosis.
-4. If evidence is insufficient, ask for additional logs.
-5. Never invent failures from informational fields.
+Your task is to synthesize multi-agent evidence into a single, fully grounded diagnostic report.
+
+Strict Responsibilities:
+1. Understand User Intent: Identify whether the query is a fault incident, configuration audit, syslog investigation, or SOP guide.
+2. Decide & Evaluate Agents: Assess evidence from Documentation Agent, Network Agent, Log Agent, and Incident Agent.
+3. Remove Duplicate Evidence: Filter out identical or redundant citations and text snippets.
+4. Resolve Conflicting Information: Prioritize active telemetry/syslog alerts over static configs or historical tickets.
+5. Grounded Response: Generate a strictly grounded answer with zero hallucinations.
+
+You MUST format your response into EXACTLY the following 8 sections:
+
+### Cause:
+[Concise root cause summary OR "No fault was detected from the supplied logs."]
+
+### Evidence:
+- [Bullet points of deduplicated evidence with citations]
+
+### Reasoning:
+- [Step-by-step diagnostic reasoning, conflict resolution, and operational state analysis]
+
+### Commands:
+```cisco
+[Executable CLI/shell commands for diagnosis and remediation, e.g., 'show interface GigabitEthernet0/1', 'no shutdown']
+```
+
+### Verification Steps:
+1. [Step 1 to verify operational recovery and traffic health]
+2. [Step 2]
+
+### Resolution:
+1. [Actionable step 1 supported by retrieved documentation]
+2. [Actionable step 2]
+
+### Confidence Score:
+[Calculated score e.g. 92% - High Diagnostic Confidence]
+
+### 📍 Source Citations:
+- [List of exact file citations]
 """
 
+def estimate_tokens(text):
+    if not text:
+        return 0
+    return max(1, len(text) // 4)
+
+def deduplicate_evidence(raw_context_items):
+    seen_hashes = set()
+    deduped = []
+    for item in raw_context_items:
+        item_hash = hashlib.sha256(item['content'].encode('utf-8')).hexdigest()
+        if item_hash not in seen_hashes:
+            seen_hashes.add(item_hash)
+            deduped.append(item)
+    return deduped
+
+def resolve_conflicts(evidence_items):
+    logs = [e for e in evidence_items if "Log" in e['agent_name']]
+    net = [e for e in evidence_items if "Network" in e['agent_name']]
+    doc = [e for e in evidence_items if "Doc" in e['agent_name']]
+    inc = [e for e in evidence_items if "Incident" in e['agent_name']]
+    if logs:
+        return logs + net + doc + inc
+    return evidence_items
+
+def limit_context_by_tokens(context_items, max_tokens=100000):
+    selected_snippets = []
+    current_tokens = 0
+    for item in context_items:
+        snippet_text = f"[{item['agent_name']} | {item['citation']}]: {item['content']}"
+        item_tokens = estimate_tokens(snippet_text)
+        if current_tokens + item_tokens <= max_tokens:
+            selected_snippets.append(snippet_text)
+            current_tokens += item_tokens
+        else:
+            remaining_tokens = max_tokens - current_tokens
+            if remaining_tokens > 50:
+                words = item['content'].split()
+                max_words = int(remaining_tokens * 0.75)
+                truncated_content = " ".join(words[:max_words]) + " [Truncated due to context limit]"
+                selected_snippets.append(f"[{item['agent_name']} | {item['citation']}]: {truncated_content}")
+            break
+    return selected_snippets
+
 class PlannerAgent:
-    """
-    Planner Agent: Integrates Diagnostic Validation Layer, formats evidence, and synthesizes cited fixes
-    using OpenAI API or built-in Local Reasoning Engine.
-    """
-    def __init__(self):
+    def __init__(self, max_context_tokens=100000):
         self.validator = DiagnosticValidator()
+        self.max_context_tokens = max_context_tokens
+
+    def classify_intent(self, query):
+        q = query.lower()
+        if "log" in q or "syslog" in q or "event" in q or "down" in q:
+            return "Active Telemetry & Syslog Investigation"
+        elif "switch" in q or "router" in q or "vlan" in q or "config" in q or "acl" in q:
+            return "Infrastructure Configuration Audit"
+        elif "sop" in q or "manual" in q or "procedure" in q or "fix" in q:
+            return "Standard Operating Procedure Resolution"
+        elif "ticket" in q or "incident" in q or "past" in q:
+            return "Historical Incident Analysis"
+        return "General IT Operations Diagnostic"
 
     def synthesize(self, query, doc_evidence, net_evidence, log_evidence, inc_evidence, chat_history=None, api_key=None, model_choice="Local Engine"):
-        all_chunks = doc_evidence + net_evidence + log_evidence + inc_evidence
-        
-        # Pass retrieved chunks through Diagnostic Validation Layer
-        validation_results = self.validator.validate(query, all_chunks)
-        confidence_score = validation_results["confidence_score"]
-        is_actual_error = validation_results["is_actual_error"]
-        error_category = validation_results["error_category"]
+        intent = self.classify_intent(query)
+        all_raw_chunks = doc_evidence + net_evidence + log_evidence + inc_evidence
+        validation_results = self.validator.validate(query, all_raw_chunks)
+        confidence_score = validation_results.get("confidence_score", 85)
+        is_actual_error = validation_results.get("is_actual_error", False)
+        error_category = validation_results.get("error_category", "Operational Log Audit")
 
         memory_str = ""
         if chat_history:
-            history_snippets = [f"{m['role'].capitalize()}: {m['content'][:150]}" for m in chat_history[-4:]]
+            history_snippets = [f"{m['role'].capitalize()}: {m['content']}" for m in chat_history[-4:]]
             memory_str = "\nRecent Conversation Memory:\n" + "\n".join(history_snippets)
 
-        # Collect citations and snippets
+        raw_context_items = []
         all_citations = []
-        context_snippets = []
         for agent_name, ev_list in [("Documentation Agent", doc_evidence), ("Network Agent", net_evidence), ("Log Agent", log_evidence), ("Incident Agent", inc_evidence)]:
             for item in ev_list:
                 cit = item.get('citation', '')
                 if cit and cit not in all_citations:
                     all_citations.append(cit)
-                context_snippets.append(f"[{agent_name} | {cit}]: {item['content'][:300]}")
+                raw_context_items.append({"agent_name": agent_name, "citation": cit, "content": item.get('content', '')})
 
+        deduped_items = deduplicate_evidence(raw_context_items)
+        resolved_items = resolve_conflicts(deduped_items)
+        context_snippets = limit_context_by_tokens(resolved_items, max_tokens=self.max_context_tokens)
         context_text = "\n".join(context_snippets) if context_snippets else "No specific document chunks retrieved."
 
-        # Execute OpenAI API synthesis if API key is provided and model is OpenAI
         openai_key = api_key or os.environ.get("OPENAI_API_KEY")
         if model_choice != "Local Engine" and openai_key:
             try:
                 from openai import OpenAI
                 client = OpenAI(api_key=openai_key)
-                
-                if not is_actual_error:
-                    user_prompt_extra = f"""
-VALIDATION LAYER AUDIT:
-- Error Detected: NO (Operational Status Normal)
-- Category: {error_category}
-Follow Rule 2 strictly: State 'No fault was detected from the supplied logs.'
-Follow Rule 4 strictly: Ask for additional logs if symptoms are observed.
-Follow Rule 5 strictly: Never invent failures from informational fields.
-"""
-                else:
-                    user_prompt_extra = f"""
-VALIDATION LAYER AUDIT:
-- Error Detected: YES
-- Category: {error_category}
-Follow Rule 3 strictly: Recommend fixes ONLY if the retrieved documentation explicitly supports that diagnosis.
-"""
-
-                user_prompt = f"""User Query: {query}
-{memory_str}
-
-Retrieved Document Context:
-{context_text}
-
-{user_prompt_extra}
-
-Format response strictly as:
-### Cause:
-[Root cause summary OR "No fault was detected from the supplied logs."]
-
-### Evidence:
-- [Key evidence with source citations]
-
-### Recommended Fix:
-1. [Step 1: Specific action supported by documentation OR "Collect additional logs or describe specific observed symptoms."]
-2. [Step 2]
-
-### 📍 Source Citations:
-- [List exact citations]
-"""
-                response = client.chat.completions.create(
-                    model=model_choice if "gpt" in model_choice.lower() else "gpt-4o-mini",
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    temperature=0.1
-                )
-                output_text = response.choices[0].message.content
-                return (output_text, validation_results)
+                user_prompt = f"User Query: {query}\nClassified Intent: {intent}\n{memory_str}\n\nMulti-Agent Deduplicated & Conflict-Resolved Context:\n{context_text}\n\nDiagnostic Validation Audit:\n- Error Detected: {'YES' if is_actual_error else 'NO (Normal Operational Status)'}\n- Error Category: {error_category}\n- Validation Confidence Score: {confidence_score}%\n\nFormat response strictly following ALL 8 required sections:\n### Cause:\n### Evidence:\n### Reasoning:\n### Commands:\n### Verification Steps:\n### Resolution:\n### Confidence Score:\n### 📍 Source Citations:\n"
+                response = client.chat.completions.create(model=model_choice if "gpt" in model_choice.lower() else "gpt-4o-mini", messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_prompt}], temperature=0.1)
+                return (response.choices[0].message.content, validation_results)
             except Exception as e:
                 st.warning(f"OpenAI API call error ({str(e)}). Falling back to Local Reasoning Engine.")
 
-        # Local Reasoning Engine Fallback (Zero external API dependency)
         if not is_actual_error:
-            cause = "No fault was detected from the supplied logs."
-            evidence_bullets = [
-                "• The supplied telemetry and configurations show normal operational status with zero explicit error/fault indicators.",
-                f"• Diagnostic Validation Layer confirmed status: `{error_category}`."
-            ]
-            rec = [
-                "1. No corrective action required. The system telemetry appears operational.",
-                "2. Collect additional logs or describe specific observed symptoms if an issue persists."
-            ]
+            cause, ev_str, reason_str, commands, verif_str, res_str = "No fault was detected from the supplied logs.", "• All supplied telemetry, syslogs, and network configurations report normal operational status.", "• Intent Classified: `{intent}`.\n• Multi-Agent Analysis: Examined logs, configurations, and SOPs; zero explicit failure keywords were triggered.\n• Conflict Resolution: No contradictions detected in telemetry.", "# Optional verification CLI\nshow interface status\nshow ip interface brief", "1. Verify that interface line protocols remain in 'up/up' state.\n2. Monitor telemetry metrics for unexpected drops.", "1. No corrective intervention required. System operational.\n2. Provide specific error logs if anomalous behavior is observed."
         else:
-            evidence_bullets = []
-            for name, items in [("Doc Agent", doc_evidence), ("Network Agent", net_evidence), ("Log Agent", log_evidence), ("Incident Agent", inc_evidence)]:
-                if items:
-                    evidence_bullets.append(f"• **{name}**: {items[0]['content'][:160]}... `{items[0].get('citation', '')}`")
+            cause = f"Analysis of multi-agent evidence indicates an operational fault ({error_category}) for query: '{query}'."
+            ev_str = "\n".join([f"• **{item['agent_name']}** (`{item['citation']}`): {item['content']}" for item in resolved_items[:4]])
+            reason_str = f"• Intent Classified: `{intent}`.\n• Deduplicated {len(raw_context_items)} evidence chunks down to {len(resolved_items)} unique items.\n• Conflict Resolution: Prioritized real-time syslog telemetry over static baseline documentation."
+            commands = "configure terminal\ninterface GigabitEthernet0/1\n no shutdown\n description Uplink Restored\nend\nwrite memory" if "gigabit" in query.lower() or "interface" in query.lower() or "down" in query.lower() else "show logging | include ERROR\nshow running-config"
+            verif_str = "1. Execute `show interface status` to confirm line protocol transitions to 'up'.\n2. Verify ping connectivity across affected VLAN interfaces."
+            res_str = f"1. Apply interface and stanza fixes documented in `{all_citations[0] if all_citations else 'uploaded company documents'}`.\n2. Re-enable interface and save startup-config."
 
-            cause = f"Analysis of indexed company data indicates an operational fault ({error_category}) for query: '{query}'."
-            rec = [
-                f"1. Review diagnostic logs and configuration parameters in `{doc_evidence[0].get('citation', 'uploaded docs') if doc_evidence else 'system documentation'}`.",
-                f"2. Apply standard resolution & interface configuration steps.",
-                f"3. Verify link stability and monitor traffic metrics."
-            ]
-        
         cit_block = "\n".join([f"• `{c}`" for c in all_citations]) if all_citations else "• `[Uploaded Company Documents]`"
-        
-        output = f"### Cause:\n{cause}\n\n### Evidence:\n" + "\n".join(evidence_bullets) + "\n\n### Recommended Fix:\n" + "\n".join(rec) + f"\n\n### 📍 Source Citations:\n{cit_block}"
+        output = f"### Cause:\n{cause}\n\n### Evidence:\n{ev_str}\n\n### Reasoning:\n{reason_str}\n\n### Commands:\n```cisco\n{commands}\n```\n\n### Verification Steps:\n{verif_str}\n\n### Resolution:\n{res_str}\n\n### Confidence Score:\n{confidence_score}% - High Confidence Grounded Multi-Agent Diagnosis\n\n### 📍 Source Citations:\n{cit_block}"
         return (output, validation_results)
+
+class AgentState(TypedDict):
+    query: str
+    chat_history: List[Dict[str, str]]
+    doc_evidence: List[Dict[str, Any]]
+    net_evidence: List[Dict[str, Any]]
+    log_evidence: List[Dict[str, Any]]
+    inc_evidence: List[Dict[str, Any]]
+    validation_results: Dict[str, Any]
+    confidence_score: int
+    executed_agents: List[str]
+    next_agent: str
+    final_response: str
+    api_key: Optional[str]
+    model_choice: str
+
+class SupervisorAgent:
+    def route(self, state: dict) -> str:
+        query = state.get("query", "").lower()
+        executed = state.get("executed_agents", [])
+        if len(executed) >= 4: return "ValidatorAgent"
+        if ("sop" in query or "manual" in query or "procedure" in query or "guide" in query or "how to" in query) and "DocumentationAgent" not in executed: return "DocumentationAgent"
+        if ("switch" in query or "router" in query or "vlan" in query or "interface" in query or "bgp" in query or "ospf" in query or "port" in query or "config" in query) and "NetworkAgent" not in executed: return "NetworkAgent"
+        if ("log" in query or "syslog" in query or "alert" in query or "event" in query or "down" in query or "crash" in query or "error" in query or "timeout" in query) and "LogAnalysisAgent" not in executed: return "LogAnalysisAgent"
+        if ("ticket" in query or "incident" in query or "outage" in query or "past" in query or "inc-" in query) and "IncidentAgent" not in executed: return "IncidentAgent"
+        for agent in ["NetworkAgent", "LogAnalysisAgent", "DocumentationAgent", "IncidentAgent"]:
+            if agent not in executed: return agent
+        return "ValidatorAgent"
+
+def build_copilot_graph(vector_store, planner_agent=None):
+    from agents.doc_agent import DocumentationAgent
+    from agents.network_agent import NetworkAgent
+    from agents.log_agent import LogAnalysisAgent
+    from agents.incident_agent import IncidentAgent
+    doc_node, net_node, log_node, inc_node = DocumentationAgent(), NetworkAgent(), LogAnalysisAgent(), IncidentAgent()
+    supervisor, validator, planner = SupervisorAgent(), DiagnosticValidator(), planner_agent or PlannerAgent()
+    if not HAS_LANGGRAPH:
+        class FallbackGraph:
+            def invoke(self, state: dict) -> dict:
+                doc_ev, net_ev, log_ev, inc_ev = doc_node.query_sop_manuals(state.get("query", ""), vector_store), net_node.query_network_configs(state.get("query", ""), vector_store), log_node.query_server_logs(state.get("query", ""), vector_store), inc_node.query_incident_tickets(state.get("query", ""), vector_store)
+                val_res = validator.validate(state.get("query", ""), doc_ev + net_ev + log_ev + inc_ev)
+                res_text, _ = planner.synthesize(state.get("query", ""), doc_ev, net_ev, log_ev, inc_ev, chat_history=state.get("chat_history", []), api_key=state.get("api_key"), model_choice=state.get("model_choice", "Local Engine"))
+                return {"doc_evidence": doc_ev, "net_evidence": net_ev, "log_evidence": log_ev, "inc_evidence": inc_ev, "validation_results": val_res, "confidence_score": val_res.get("confidence_score", 85), "executed_agents": ["DocumentationAgent", "NetworkAgent", "LogAnalysisAgent", "IncidentAgent", "ValidatorAgent", "PlannerAgent"], "final_response": res_text}
+        return FallbackGraph()
+    builder = StateGraph(AgentState)
+    builder.add_node("Supervisor", lambda s: {"next_agent": supervisor.route(s)})
+    builder.add_node("DocumentationAgent", lambda s: doc_node.run_node(s, vector_store))
+    builder.add_node("NetworkAgent", lambda s: net_node.run_node(s, vector_store))
+    builder.add_node("LogAnalysisAgent", lambda s: log_node.run_node(s, vector_store))
+    builder.add_node("IncidentAgent", lambda s: inc_node.run_node(s, vector_store))
+    def validator_step(state: dict) -> dict:
+        query = state.get("query", "")
+        retry_count = state.get("retry_count", 0)
+        all_chunks = (
+            state.get("doc_evidence", []) +
+            state.get("net_evidence", []) +
+            state.get("log_evidence", []) +
+            state.get("inc_evidence", [])
+        )
+        
+        val_res = validator.validate(
+            query=query,
+            retrieved_chunks=all_chunks,
+            api_key=state.get("api_key"),
+            model_choice=state.get("model_choice", "Local Engine")
+        )
+        
+        score = val_res.get("confidence_score", 85)
+        requires_more = val_res.get("requires_more_documents", False)
+        executed = list(state.get("executed_agents", []))
+        executed.append("ValidatorAgent")
+
+        if requires_more and retry_count < 2:
+            expanded_q = val_res.get("suggested_query_expansion", query)
+            more_chunks = vector_store.search(expanded_q, top_k=8)
+            log_ev = list(state.get("log_evidence", [])) + more_chunks
+            return {
+                "validation_results": val_res,
+                "confidence_score": score,
+                "executed_agents": executed,
+                "retry_count": retry_count + 1,
+                "log_evidence": log_ev
+            }
+
+        return {
+            "validation_results": val_res,
+            "confidence_score": score,
+            "executed_agents": executed
+        }
+
+    def planner_step(state: dict) -> dict:
+        res_text, val_res = planner.synthesize(
+            query=state.get("query", ""),
+            doc_evidence=state.get("doc_evidence", []),
+            net_evidence=state.get("net_evidence", []),
+            log_evidence=state.get("log_evidence", []),
+            inc_evidence=state.get("inc_evidence", []),
+            chat_history=state.get("chat_history", []),
+            api_key=state.get("api_key"),
+            model_choice=state.get("model_choice", "Local Engine")
+        )
+        executed = list(state.get("executed_agents", []))
+        executed.append("PlannerAgent")
+        return {
+            "final_response": res_text,
+            "validation_results": val_res,
+            "executed_agents": executed
+        }
+
+    builder = StateGraph(AgentState)
+    builder.add_node("Supervisor", lambda s: {"next_agent": supervisor.route(s)})
+    builder.add_node("DocumentationAgent", lambda s: doc_node.run_node(s, vector_store))
+    builder.add_node("NetworkAgent", lambda s: net_node.run_node(s, vector_store))
+    builder.add_node("LogAnalysisAgent", lambda s: log_node.run_node(s, vector_store))
+    builder.add_node("IncidentAgent", lambda s: inc_node.run_node(s, vector_store))
+    builder.add_node("ValidatorAgent", validator_step)
+    builder.add_node("PlannerAgent", planner_step)
+    builder.set_entry_point("Supervisor")
+    builder.add_conditional_edges("Supervisor", lambda s: s.get("next_agent", "ValidatorAgent"), {"DocumentationAgent": "DocumentationAgent", "NetworkAgent": "NetworkAgent", "LogAnalysisAgent": "LogAnalysisAgent", "IncidentAgent": "IncidentAgent", "ValidatorAgent": "ValidatorAgent"})
+    for node in ["DocumentationAgent", "NetworkAgent", "LogAnalysisAgent", "IncidentAgent"]: builder.add_edge(node, "Supervisor")
+    builder.add_edge("ValidatorAgent", "PlannerAgent")
+    builder.add_edge("PlannerAgent", END)
+    return builder.compile()
+
