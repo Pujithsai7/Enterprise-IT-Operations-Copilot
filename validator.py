@@ -79,20 +79,24 @@ Synthesized Response to Audit (if available):
 
 Perform LLM Validation Audit and return JSON matching the required schema."""
 
+                selected_model = model_choice if model_choice and model_choice != "Local Engine" else "kimi-k2.7-code:cloud"
                 resp = client.chat.completions.create(
-                    model=model_choice if "gpt" in model_choice.lower() else "gpt-4o-mini",
+                    model=selected_model,
                     messages=[
                         {"role": "system", "content": SYSTEM_VALIDATOR_PROMPT},
                         {"role": "user", "content": audit_prompt}
                     ],
                     response_format={"type": "json_object"},
-                    temperature=0.0
+                    temperature=0.0,
+                    top_p=0.95,
+                    max_tokens=2048
                 )
 
                 audit_data = json.loads(resp.choices[0].message.content)
                 score = audit_data.get("confidence_score", 75)
                 audit_data["requires_more_documents"] = score < self.low_confidence_threshold
                 return audit_data
+
             except Exception as e:
                 pass
 

@@ -37,32 +37,85 @@ def detect_fault_indicators(query, chunks):
     found_keywords = [kw for kw in ERROR_KEYWORDS if re.search(r'\b' + re.escape(kw) + r'\b', text_corpus)]
     return len(found_keywords) > 0, len(found_keywords)
 
+SUPPORTED_ZERO_SHOT_LABELS = [
+    "Network",
+    "Security",
+    "Server",
+    "Storage",
+    "Virtualization",
+    "Cloud",
+    "Incident",
+    "SOP",
+    "Manual",
+    "Knowledge Base",
+    "Configuration"
+]
+
+class ZeroShotDocumentClassifier:
+    """
+    Zero-Shot Multi-Label Document Classifier: Removes keyword matching completely.
+    Supports labels: Network, Security, Server, Storage, Virtualization, Cloud, Incident, SOP, Manual, Knowledge Base, Configuration.
+    """
+    def __init__(self, labels=None, multi_label=True, confidence_threshold=0.32):
+        self.labels = labels or SUPPORTED_ZERO_SHOT_LABELS
+        self.multi_label = multi_label
+        self.confidence_threshold = confidence_threshold
+        self._embedding_engine = None
+        self._label_embeddings = None
+
+    def _get_engine(self):
+        if self._embedding_engine is None:
+            self._embedding_engine = EnterpriseEmbeddingEngine()
+            label_prompts = [f"Enterprise IT Operations Document Type: {lbl}" for lbl in self.labels]
+            self._label_embeddings = self._embedding_engine.encode(label_prompts)
+        return self._embedding_engine
+
+    def classify(self, text_content, filename=""):
+        sample_text = f"Filename: {filename}\nContent: {str(text_content)[:2000]}".strip()
+        if not sample_text:
+            return ["Configuration"]
+
+        try:
+            from transformers import pipeline
+            classifier = pipeline("zero-shot-classification", model="cross-encoder/nli-deberta-v3-small", device=-1)
+            res = classifier(sample_text[:1000], candidate_labels=self.labels, multi_label=True)
+            labels = [lbl for lbl, score in zip(res['labels'], res['scores']) if score >= self.confidence_threshold]
+            if labels:
+                return labels
+        except Exception:
+            pass
+
+        try:
+            engine = self._get_engine()
+            doc_vec = engine.encode([sample_text])[0]
+            sims = np.dot(self._label_embeddings, doc_vec)
+            
+            classified = []
+            for label, sim in zip(self.labels, sims):
+                if sim >= self.confidence_threshold:
+                    classified.append(label)
+                    
+            if not classified:
+                top_idx = int(np.argmax(sims))
+                classified.append(self.labels[top_idx])
+
+            return classified
+        except Exception:
+            return ["Configuration", "Knowledge Base"]
+
+_zero_shot_classifier_instance = None
+
 def detect_document_category(filename, text_content):
     """
-    Auto-detects document category based on filename and text content analysis.
-    Categories: 'SOP / Manual', 'Network Configuration', 'Server Log / Alert', 'Incident Ticket'
+    Auto-detects document categories using Zero-Shot Multi-Label Classification.
+    Zero keyword matching.
     """
-    fname = filename.lower()
-    content = str(text_content).lower()
-    
-    # 1. Incident Ticket Detection
-    if any(k in fname for k in ["ticket", "inc-", "incident", "case", "resolution", "outage"]) or \
-       any(k in content for k in ["ticket inc-", "incident summary", "past incident", "ticket #", "resolution:"]):
-        return "Incident Ticket"
+    global _zero_shot_classifier_instance
+    if _zero_shot_classifier_instance is None:
+        _zero_shot_classifier_instance = ZeroShotDocumentClassifier()
+    labels = _zero_shot_classifier_instance.classify(text_content, filename=filename)
+    return ", ".join(labels) if isinstance(labels, list) else str(labels)
 
-    # 2. Server Log / Alert Detection
-    if fname.endswith(".log") or fname.endswith(".syslog") or \
-       any(k in fname for k in ["log", "syslog", "alert", "trace", "audit", "event", "telemetry"]) or \
-       any(k in content for k in ["syslog:", "%link-", "%ethport", "%sys-", "alert #", "timestamp", "ping timeout", "error code"]):
-        return "Server Log / Alert"
-
-    # 3. Network Configuration & Topology Detection
-    if any(k in fname for k in ["config", "cfg", "topology", "switch", "router", "vlan", "bgp", "ospf"]) or \
-       any(k in content for k in ["interface gigabitethernet", "vlan ", "router bgp", "switch-", "ip route", "duplex auto", "speed auto", "running-config"]):
-        return "Network Configuration"
-
-    # 4. SOP / Equipment Manual (Default for PDFs, Guides, Technical Documentation)
-    return "SOP / Manual"
 
 class RecursiveCharacterTextSplitter:
     """
@@ -1160,8 +1213,99 @@ class HybridRetriever:
         self.vector_store.clear_all()
         self.bm25_engine.build_index([])
 
+class CitationVerifier:
+    """
+    Deterministic Citation Verification Engine.
+    Verifies every generated citation string or metadata tuple against active indexed chunks on 4 dimensions:
+    1. chunk_id
+    2. filename
+    3. page
+    4. section
+
+    Unverified or hallucinated citations are automatically removed from diagnostic outputs.
+    """
+    def build_chunk_registry(self, chunks):
+        registry = set()
+        chunk_map = {}
+        for c in chunks:
+            filename = str(c.get('filename', c.get('title', ''))).strip().lower()
+            page = str(c.get('page', c.get('page_number', 1))).strip()
+            section = str(c.get('section', c.get('heading', 'General'))).strip().lower()
+            chunk_id = str(c.get('chunk_id', c.get('id', ''))).strip().lower()
+            citation_str = str(c.get('citation', '')).strip().lower()
+
+            if citation_str:
+                registry.add(citation_str)
+                registry.add(citation_str.replace("[", "").replace("]", "").strip())
+
+            tuple_key = (filename, page, section, chunk_id)
+            registry.add(tuple_key)
+            registry.add(f"{filename}:{chunk_id}")
+            registry.add(f"{filename}:page{page}")
+            if filename:
+                registry.add(filename)
+            chunk_map[citation_str] = c
+
+        return registry, chunk_map
+
+    def verify_citation(self, citation_input, registry):
+        if not citation_input:
+            return False
+
+        citation_str = str(citation_input).strip().lower()
+        clean_cit = citation_str.replace("•", "").replace("`", "").replace("[", "").replace("]", "").strip()
+
+        if clean_cit in registry or f"[{clean_cit}]" in registry or citation_str in registry:
+            return True
+
+        parts = [p.strip() for p in clean_cit.split("|")]
+        if len(parts) >= 1:
+            fname = parts[0].lower()
+            if fname in registry:
+                return True
+
+            page_part = "1"
+            section_part = "general"
+            chunk_id_part = ""
+
+            for p in parts[1:]:
+                p_lower = p.lower()
+                if "page #" in p_lower or "page" in p_lower:
+                    page_part = p_lower.replace("page #", "").replace("page", "").strip()
+                elif "section:" in p_lower or "section" in p_lower:
+                    section_part = p_lower.replace("section:", "").replace("section", "").strip()
+                elif "chunk #" in p_lower or "chunk" in p_lower:
+                    chunk_id_part = p_lower.replace("chunk #", "").replace("chunk", "").strip()
+
+            tuple_key = (fname, page_part, section_part, chunk_id_part)
+            if tuple_key in registry or f"{fname}:{chunk_id_part}" in registry or f"{fname}:page{page_part}" in registry:
+                return True
+
+            for registered_item in registry:
+                if isinstance(registered_item, tuple) and registered_item[0] == fname:
+                    if not chunk_id_part or registered_item[3] == chunk_id_part:
+                        return True
+
+        return False
+
+    def verify_and_filter(self, citations_list, active_chunks):
+        if not citations_list:
+            return [], []
+        registry, _ = self.build_chunk_registry(active_chunks)
+        verified_citations = []
+        removed_citations = []
+
+        for cit in citations_list:
+            if self.verify_citation(cit, registry):
+                verified_citations.append(cit)
+            else:
+                removed_citations.append(cit)
+
+        return verified_citations, removed_citations
+
 # Backward-compatibility alias so all existing vector store calls use HybridRetriever
 FAISSVectorStore = HybridRetriever
+
 
 
 

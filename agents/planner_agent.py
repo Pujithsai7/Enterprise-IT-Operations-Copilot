@@ -189,6 +189,10 @@ class PlannerAgent:
         context_snippets = limit_context_by_tokens(resolved_items, max_tokens=self.max_context_tokens)
         context_text = "\n".join(context_snippets) if context_snippets else "No specific document chunks retrieved."
 
+        from utils import CitationVerifier
+        verifier = CitationVerifier()
+        verified_citations, removed_citations = verifier.verify_and_filter(all_citations, all_raw_chunks)
+
         openai_key = api_key or os.environ.get("OPENAI_API_KEY")
         if model_choice != "Local Engine" and openai_key:
             try:
@@ -196,16 +200,22 @@ class PlannerAgent:
                 client = OpenAI(api_key=openai_key)
                 user_prompt = f"User Query: {query}\nClassified Intent: {intent}\n{memory_str}\n\nMulti-Agent Context:\n{context_text}\n\nDiagnostic Audit:\n- Error Detected: {'YES' if is_actual_error else 'NO'}\n- Category: {error_category}\n- Confidence: {confidence_score}%\n\nGenerate structured output matching the DiagnosticReport Pydantic schema."
                 
+                selected_model = model_choice if model_choice and model_choice != "Local Engine" else "kimi-k2.7-code:cloud"
                 response = client.beta.chat.completions.parse(
-                    model=model_choice if "gpt" in model_choice.lower() else "gpt-4o-mini",
+                    model=selected_model,
                     messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_prompt}],
                     response_format=DiagnosticReport,
-                    temperature=0.1
+                    temperature=0.0,
+                    top_p=0.95,
+                    max_tokens=4096
                 )
                 parsed_report: DiagnosticReport = response.choices[0].message.parsed
+                clean_cits, _ = verifier.verify_and_filter(parsed_report.citations, all_raw_chunks)
+                parsed_report.citations = clean_cits or verified_citations
                 return (parsed_report.to_markdown(), validation_results)
             except Exception as e:
-                st.warning(f"OpenAI Structured Output error ({str(e)}). Falling back to Pydantic Local Engine.")
+                st.warning(f"LLM Synthesis error ({str(e)}). Falling back to Pydantic Local Engine.")
+
 
         if not is_actual_error:
             report_data = {
@@ -229,7 +239,7 @@ class PlannerAgent:
                     "Provide specific error logs if anomalous behavior is observed."
                 ],
                 "confidence": min(100, max(0, confidence_score)),
-                "citations": all_citations or ["Uploaded Company Documents"]
+                "citations": verified_citations or ["Uploaded Company Documents"]
             }
         else:
             evidence_items = [f"**{item['agent_name']}** (`{item['citation']}`): {item['content']}" for item in resolved_items[:4]]
@@ -247,19 +257,27 @@ class PlannerAgent:
                     "Verify ping connectivity across affected VLAN interfaces."
                 ],
                 "resolution": [
-                    f"Apply interface and stanza fixes documented in `{all_citations[0] if all_citations else 'uploaded company documents'}`.",
+                    f"Apply interface and stanza fixes documented in `{verified_citations[0] if verified_citations else 'uploaded company documents'}`.",
                     "Re-enable interface and save startup-config."
                 ],
                 "confidence": min(100, max(0, confidence_score)),
-                "citations": all_citations or ["Uploaded Company Documents"]
+                "citations": verified_citations or ["Uploaded Company Documents"]
             }
+
+        from evaluator import RAGEvaluator
+        rag_evaluator = RAGEvaluator()
 
         try:
             report_obj = DiagnosticReport.model_validate(report_data)
-            return (report_obj.to_markdown(), validation_results)
+            final_text = report_obj.to_markdown()
+            eval_results = rag_evaluator.evaluate(query, all_raw_chunks, final_text)
+            validation_results["eval_results"] = eval_results
+            return (final_text, validation_results)
         except ValidationError as val_err:
             st.error(f"Malformed output rejected by Pydantic schema: {val_err}")
             raise val_err
+
+
 
 
 class AgentState(TypedDict):

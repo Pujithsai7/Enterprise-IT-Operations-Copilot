@@ -115,14 +115,23 @@ def main():
         st.header("⚙️ Settings & Engine")
         
         api_key = st.text_input(
-            "OpenAI API Key (Optional)",
+            "API Key (Optional)",
             type="password",
-            help="Enter key for live OpenAI LLM synthesis, or leave blank to use built-in Local Engine."
+            help="Enter API Key for cloud models, or leave blank to run with local reasoning engine."
         )
         model_choice = st.selectbox(
             "LLM Engine",
-            ["Local Engine", "gpt-4o-mini", "gpt-4o"]
+            [
+                "kimi-k2.7-code:cloud",
+                "glm-5.2:cloud",
+                "qwen3.6",
+                "gemma4:12b",
+                "minimax-m3:cloud",
+                "nemotron-3-super:cloud",
+                "Local Engine"
+            ]
         )
+
         
         st.markdown("---")
         st.header("🧠 Conversation History")
