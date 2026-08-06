@@ -15,17 +15,23 @@ def test_enterprise_embedding_engine():
 
 def test_qdrant_vector_store():
     qdrant = QdrantPersistentVectorStore()
-    sample_doc = {
-        "id": 101,
+    sample_chunk = {
+        "content": "%ETHPORT-5-IF_DOWN: Interface GigabitEthernet0/1 is down",
+        "filename": "syslog_qdrant_unique.log",
+        "title": "syslog_qdrant_unique.log",
+        "page": 1,
+        "section": "Telemetry",
+        "chunk_id": "syslog_q1",
+        "document_type": "Server Log / Alert",
         "source_type": "Server Log / Alert",
-        "title": "syslog_test.log",
-        "pages": [{"page": 1, "content": "%ETHPORT-5-IF_DOWN: Interface GigabitEthernet0/1 is down"}],
-        "content": "%ETHPORT-5-IF_DOWN: Interface GigabitEthernet0/1 is down"
+        "device_type": "Syslog",
+        "citation": "[syslog_qdrant_unique.log | Page #1 | Chunk #1]"
     }
-    qdrant.build_index([sample_doc])
+    qdrant.upsert_chunks([sample_chunk])
     results = qdrant.search("GigabitEthernet0/1 down", top_k=2)
     assert isinstance(results, list)
     assert len(results) > 0
+
 
 def test_bm25_search_engine():
     bm25 = BM25SearchEngine()
