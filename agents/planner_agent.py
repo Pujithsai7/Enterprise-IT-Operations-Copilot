@@ -99,6 +99,52 @@ def limit_context_by_tokens(context_items, max_tokens=100000):
             break
     return selected_snippets
 
+from pydantic import BaseModel, Field, ValidationError
+
+class DiagnosticReport(BaseModel):
+    cause: str = Field(..., description="Concise root cause summary OR 'No fault was detected from the supplied logs.'")
+    evidence: List[str] = Field(default_factory=list, description="List of deduplicated evidence items with citations")
+    reasoning: List[str] = Field(default_factory=list, description="Step-by-step diagnostic reasoning and conflict resolution steps")
+    commands: List[str] = Field(default_factory=list, description="List of executable CLI or shell commands for diagnosis and remediation")
+    verification_steps: List[str] = Field(default_factory=list, description="List of verification steps to confirm operational recovery")
+    resolution: List[str] = Field(default_factory=list, description="List of actionable resolution steps supported by retrieved documentation")
+    confidence: int = Field(..., ge=0, le=100, description="Calculated confidence score between 0 and 100")
+    citations: List[str] = Field(default_factory=list, description="List of exact file citations")
+
+    def to_markdown(self) -> str:
+        ev_str = "\n".join([f"- {item}" for item in self.evidence]) if self.evidence else "- No specific evidence."
+        reason_str = "\n".join([f"- {item}" for item in self.reasoning]) if self.reasoning else "- General intent analysis."
+        cmd_str = "\n".join(self.commands) if self.commands else "# No commands required"
+        verif_str = "\n".join([f"{idx+1}. {item}" for idx, item in enumerate(self.verification_steps)]) if self.verification_steps else "1. Verify link status."
+        res_str = "\n".join([f"{idx+1}. {item}" for idx, item in enumerate(self.resolution)]) if self.resolution else "1. System operational."
+        cit_str = "\n".join([f"- `{item}`" for item in self.citations]) if self.citations else "- `[Uploaded Company Documents]`"
+
+        return f"""### Cause:
+{self.cause}
+
+### Evidence:
+{ev_str}
+
+### Reasoning:
+{reason_str}
+
+### Commands:
+```cisco
+{cmd_str}
+```
+
+### Verification Steps:
+{verif_str}
+
+### Resolution:
+{res_str}
+
+### Confidence Score:
+{self.confidence}% - Grounded Pydantic Diagnostic Report
+
+### 📍 Source Citations:
+{cit_str}"""
+
 class PlannerAgent:
     def __init__(self, max_context_tokens=100000):
         self.validator = DiagnosticValidator()
@@ -148,25 +194,73 @@ class PlannerAgent:
             try:
                 from openai import OpenAI
                 client = OpenAI(api_key=openai_key)
-                user_prompt = f"User Query: {query}\nClassified Intent: {intent}\n{memory_str}\n\nMulti-Agent Deduplicated & Conflict-Resolved Context:\n{context_text}\n\nDiagnostic Validation Audit:\n- Error Detected: {'YES' if is_actual_error else 'NO (Normal Operational Status)'}\n- Error Category: {error_category}\n- Validation Confidence Score: {confidence_score}%\n\nFormat response strictly following ALL 8 required sections:\n### Cause:\n### Evidence:\n### Reasoning:\n### Commands:\n### Verification Steps:\n### Resolution:\n### Confidence Score:\n### 📍 Source Citations:\n"
-                response = client.chat.completions.create(model=model_choice if "gpt" in model_choice.lower() else "gpt-4o-mini", messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_prompt}], temperature=0.1)
-                return (response.choices[0].message.content, validation_results)
+                user_prompt = f"User Query: {query}\nClassified Intent: {intent}\n{memory_str}\n\nMulti-Agent Context:\n{context_text}\n\nDiagnostic Audit:\n- Error Detected: {'YES' if is_actual_error else 'NO'}\n- Category: {error_category}\n- Confidence: {confidence_score}%\n\nGenerate structured output matching the DiagnosticReport Pydantic schema."
+                
+                response = client.beta.chat.completions.parse(
+                    model=model_choice if "gpt" in model_choice.lower() else "gpt-4o-mini",
+                    messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_prompt}],
+                    response_format=DiagnosticReport,
+                    temperature=0.1
+                )
+                parsed_report: DiagnosticReport = response.choices[0].message.parsed
+                return (parsed_report.to_markdown(), validation_results)
             except Exception as e:
-                st.warning(f"OpenAI API call error ({str(e)}). Falling back to Local Reasoning Engine.")
+                st.warning(f"OpenAI Structured Output error ({str(e)}). Falling back to Pydantic Local Engine.")
 
         if not is_actual_error:
-            cause, ev_str, reason_str, commands, verif_str, res_str = "No fault was detected from the supplied logs.", "• All supplied telemetry, syslogs, and network configurations report normal operational status.", "• Intent Classified: `{intent}`.\n• Multi-Agent Analysis: Examined logs, configurations, and SOPs; zero explicit failure keywords were triggered.\n• Conflict Resolution: No contradictions detected in telemetry.", "# Optional verification CLI\nshow interface status\nshow ip interface brief", "1. Verify that interface line protocols remain in 'up/up' state.\n2. Monitor telemetry metrics for unexpected drops.", "1. No corrective intervention required. System operational.\n2. Provide specific error logs if anomalous behavior is observed."
+            report_data = {
+                "cause": "No fault was detected from the supplied logs.",
+                "evidence": [
+                    "All supplied telemetry, syslogs, and network configurations report normal operational status.",
+                    f"Diagnostic Validation Audit verified status: `{error_category}`."
+                ],
+                "reasoning": [
+                    f"Intent Classified: `{intent}`.",
+                    "Multi-Agent Analysis: Examined logs, configurations, and SOPs; zero explicit failure keywords were triggered.",
+                    "Conflict Resolution: No contradictions detected in telemetry."
+                ],
+                "commands": ["show interface status", "show ip interface brief"],
+                "verification_steps": [
+                    "Verify that interface line protocols remain in 'up/up' state.",
+                    "Monitor telemetry metrics for unexpected drops."
+                ],
+                "resolution": [
+                    "No corrective intervention required. System operational.",
+                    "Provide specific error logs if anomalous behavior is observed."
+                ],
+                "confidence": min(100, max(0, confidence_score)),
+                "citations": all_citations or ["Uploaded Company Documents"]
+            }
         else:
-            cause = f"Analysis of multi-agent evidence indicates an operational fault ({error_category}) for query: '{query}'."
-            ev_str = "\n".join([f"• **{item['agent_name']}** (`{item['citation']}`): {item['content']}" for item in resolved_items[:4]])
-            reason_str = f"• Intent Classified: `{intent}`.\n• Deduplicated {len(raw_context_items)} evidence chunks down to {len(resolved_items)} unique items.\n• Conflict Resolution: Prioritized real-time syslog telemetry over static baseline documentation."
-            commands = "configure terminal\ninterface GigabitEthernet0/1\n no shutdown\n description Uplink Restored\nend\nwrite memory" if "gigabit" in query.lower() or "interface" in query.lower() or "down" in query.lower() else "show logging | include ERROR\nshow running-config"
-            verif_str = "1. Execute `show interface status` to confirm line protocol transitions to 'up'.\n2. Verify ping connectivity across affected VLAN interfaces."
-            res_str = f"1. Apply interface and stanza fixes documented in `{all_citations[0] if all_citations else 'uploaded company documents'}`.\n2. Re-enable interface and save startup-config."
+            evidence_items = [f"**{item['agent_name']}** (`{item['citation']}`): {item['content']}" for item in resolved_items[:4]]
+            report_data = {
+                "cause": f"Analysis of multi-agent evidence indicates an operational fault ({error_category}) for query: '{query}'.",
+                "evidence": evidence_items,
+                "reasoning": [
+                    f"Intent Classified: `{intent}`.",
+                    f"Deduplicated {len(raw_context_items)} evidence chunks down to {len(resolved_items)} unique items.",
+                    "Conflict Resolution: Prioritized real-time syslog telemetry over static baseline documentation."
+                ],
+                "commands": ["configure terminal", "interface GigabitEthernet0/1", "no shutdown", "description Uplink Restored", "end", "write memory"] if ("gigabit" in query.lower() or "interface" in query.lower() or "down" in query.lower()) else ["show logging | include ERROR", "show running-config"],
+                "verification_steps": [
+                    "Execute `show interface status` to confirm line protocol transitions to 'up'.",
+                    "Verify ping connectivity across affected VLAN interfaces."
+                ],
+                "resolution": [
+                    f"Apply interface and stanza fixes documented in `{all_citations[0] if all_citations else 'uploaded company documents'}`.",
+                    "Re-enable interface and save startup-config."
+                ],
+                "confidence": min(100, max(0, confidence_score)),
+                "citations": all_citations or ["Uploaded Company Documents"]
+            }
 
-        cit_block = "\n".join([f"• `{c}`" for c in all_citations]) if all_citations else "• `[Uploaded Company Documents]`"
-        output = f"### Cause:\n{cause}\n\n### Evidence:\n{ev_str}\n\n### Reasoning:\n{reason_str}\n\n### Commands:\n```cisco\n{commands}\n```\n\n### Verification Steps:\n{verif_str}\n\n### Resolution:\n{res_str}\n\n### Confidence Score:\n{confidence_score}% - High Confidence Grounded Multi-Agent Diagnosis\n\n### 📍 Source Citations:\n{cit_block}"
-        return (output, validation_results)
+        try:
+            report_obj = DiagnosticReport.model_validate(report_data)
+            return (report_obj.to_markdown(), validation_results)
+        except ValidationError as val_err:
+            st.error(f"Malformed output rejected by Pydantic schema: {val_err}")
+            raise val_err
+
 
 class AgentState(TypedDict):
     query: str
