@@ -101,9 +101,14 @@ async def upload_files(
         # Enterprise Security: 25MB Limit & Magic Byte Inspection
         SecureUploadValidator.validate_upload(f.filename, file_content, f.content_type)
         
-        pages = parse_uploaded_file(file_content, filename_override=f.filename)
+        try:
+            pages = parse_uploaded_file(file_content, filename_override=f.filename)
+        except ValueError as ve:
+            raise HTTPException(status_code=400, detail=str(ve))
+
         full_text = "\n".join([p.get("content", "") if isinstance(p, dict) else str(p) for p in pages])
         auto_category = detect_document_category(f.filename, full_text)
+
         
         uploaded_docs.append({
             "id": len(vector_store.chunks) + 1,

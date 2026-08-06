@@ -1326,34 +1326,82 @@ FAISSVectorStore = HybridRetriever
 
 
 
+import os
+import io
+
 def parse_uploaded_file(uploaded_file, filename_override=None):
-    filename = (filename_override or getattr(uploaded_file, "filename", getattr(uploaded_file, "name", "file.txt"))).lower()
+    """
+    Parses PDF, DOCX, TXT, and LOG files into page-content dictionary lists.
+    Supports 4 input types:
+    1. bytes
+    2. io.BytesIO
+    3. Streamlit UploadedFile / FastAPI UploadFile
+    4. Local file path string
+    """
+    if isinstance(uploaded_file, (str, os.PathLike)) and not filename_override:
+        filename = os.path.basename(str(uploaded_file)).lower()
+    else:
+        filename = (
+            filename_override 
+            or getattr(uploaded_file, "filename", getattr(uploaded_file, "name", None))
+            or (str(uploaded_file) if isinstance(uploaded_file, (str, os.PathLike)) else "file.txt")
+        ).lower()
+
     pages = []
     try:
-        file_obj = getattr(uploaded_file, "file", uploaded_file)
-        if filename.endswith(".pdf") and pypdf:
+        # Resolve file input to a seekable BytesIO object
+        if isinstance(uploaded_file, (str, os.PathLike)) and os.path.exists(str(uploaded_file)):
+            with open(str(uploaded_file), "rb") as f:
+                file_obj = io.BytesIO(f.read())
+        elif isinstance(uploaded_file, bytes):
+            file_obj = io.BytesIO(uploaded_file)
+        elif isinstance(uploaded_file, io.BytesIO):
+            file_obj = uploaded_file
+            file_obj.seek(0)
+        elif hasattr(uploaded_file, "file"): # FastAPI UploadFile
+            raw_bytes = uploaded_file.file.read()
+            file_obj = io.BytesIO(raw_bytes if isinstance(raw_bytes, bytes) else raw_bytes.encode("utf-8"))
+        elif hasattr(uploaded_file, "read"): # Streamlit UploadedFile
+            raw = uploaded_file.read()
+            if isinstance(raw, str):
+                raw_bytes = raw.encode("utf-8")
+            else:
+                raw_bytes = raw
+            file_obj = io.BytesIO(raw_bytes)
+        else:
+            raw_bytes = str(uploaded_file).encode("utf-8")
+            file_obj = io.BytesIO(raw_bytes)
+
+        file_obj.seek(0)
+
+        if filename.endswith(".pdf"):
+            if not pypdf:
+                raise ValueError("pypdf library is not installed.")
             reader = pypdf.PdfReader(file_obj)
             for idx, page in enumerate(reader.pages):
                 txt = page.extract_text() or ""
                 if txt.strip():
                     pages.append({"page": idx + 1, "content": txt.strip()})
             if not pages:
-                pages = [{"page": 1, "content": f"[File: {filename} - Empty or non-text PDF]"}]
-        elif filename.endswith(".docx") and docx:
+                raise ValueError(f"PDF document '{filename}' contained no extractable text.")
+        elif filename.endswith(".docx"):
+            if not docx:
+                raise ValueError("python-docx library is not installed.")
             doc = docx.Document(file_obj)
             text = "\n".join([p.text for p in doc.paragraphs]).strip()
-            pages = [{"page": 1, "content": text if text else f"[File: {filename} - Empty DOCX]"}]
+            if not text:
+                raise ValueError(f"DOCX document '{filename}' contained no extractable text.")
+            pages = [{"page": 1, "content": text}]
         else:
-            if hasattr(file_obj, "read"):
-                raw_bytes = file_obj.read()
-            else:
-                raw_bytes = str(file_obj).encode("utf-8")
-            if isinstance(raw_bytes, str):
-                text = raw_bytes.strip()
-            else:
-                text = raw_bytes.decode("utf-8", errors="ignore").strip()
-            pages = [{"page": 1, "content": text if text else f"[File: {filename} - Empty text file]"}]
+            file_obj.seek(0)
+            raw_data = file_obj.read()
+            text = raw_data.decode("utf-8", errors="ignore").strip() if isinstance(raw_data, bytes) else str(raw_data).strip()
+            if not text:
+                raise ValueError(f"Document '{filename}' is empty.")
+            pages = [{"page": 1, "content": text}]
     except Exception as e:
-        pages = [{"page": 1, "content": f"[Error reading file {filename}: {str(e)}]"}]
+        raise ValueError(f"Ingestion Validation Failure for '{filename}': {str(e)}")
+
     return pages
+
 
