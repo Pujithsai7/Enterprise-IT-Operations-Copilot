@@ -41,13 +41,14 @@ document_registry = DocumentRegistry()
 class ChatMessage(BaseModel):
     role: str
     content: str
-    confidence: Optional[Union[int, float, str]] = None
+    confidence: Optional[int] = None
 
 class DiagnoseRequest(BaseModel):
     query: str
-    chat_history: Optional[List[Dict[str, Any]]] = []
+    chat_history: Optional[List[ChatMessage]] = []
     api_key: Optional[str] = None
     model_choice: Optional[str] = "kimi-k2.7-code:cloud"
+
 
 
 class DiagnoseResponse(BaseModel):
@@ -143,9 +144,15 @@ def diagnose_issue(
 
     copilot_graph = build_copilot_graph(vector_store)
     
+    formatted_history = [
+        m.model_dump() if hasattr(m, "model_dump") else dict(m)
+        for m in (req.chat_history or [])
+    ]
+
     initial_state = {
         "query": sanitized_query,
-        "chat_history": req.chat_history or [],
+        "chat_history": formatted_history,
+
         "doc_evidence": [],
         "net_evidence": [],
         "log_evidence": [],

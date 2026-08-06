@@ -472,5 +472,218 @@
       "status": "WARN"
     },
     "status": "success"
+  },
+  {
+    "trace_name": "Copilot_MultiAgent_Workflow",
+    "total_latency_ms": 71.68,
+    "inputs": {
+      "query": "Why is GigabitEthernet0/1 down?"
+    },
+    "events": [
+      {
+        "type": "agent_execution",
+        "agent": "LogAnalysisAgent",
+        "status": "success",
+        "latency_ms": 11.95,
+        "timestamp": 1786011235.798068
+      },
+      {
+        "type": "agent_execution",
+        "agent": "NetworkAgent",
+        "status": "success",
+        "latency_ms": 11.95,
+        "timestamp": 1786011235.798068
+      },
+      {
+        "type": "agent_execution",
+        "agent": "DocumentationAgent",
+        "status": "success",
+        "latency_ms": 11.95,
+        "timestamp": 1786011235.798068
+      },
+      {
+        "type": "agent_execution",
+        "agent": "IncidentAgent",
+        "status": "success",
+        "latency_ms": 11.95,
+        "timestamp": 1786011235.798068
+      },
+      {
+        "type": "agent_execution",
+        "agent": "ValidatorAgent",
+        "status": "success",
+        "latency_ms": 11.95,
+        "timestamp": 1786011235.798068
+      },
+      {
+        "type": "agent_execution",
+        "agent": "PlannerAgent",
+        "status": "success",
+        "latency_ms": 11.95,
+        "timestamp": 1786011235.798068
+      },
+      {
+        "type": "retriever_performance",
+        "query": "Why is GigabitEthernet0/1 down?",
+        "chunk_count": 4,
+        "avg_relevance_score": 0.9925,
+        "latency_ms": 21.5,
+        "timestamp": 1786011235.798068
+      }
+    ],
+    "eval_metrics": {
+      "ragas_score": 0.73,
+      "faithfulness": 0.42,
+      "context_precision": 1.0,
+      "context_recall": 0.5,
+      "answer_relevance": 1.0,
+      "citation_accuracy": 1.0,
+      "groundedness": 0.42,
+      "hallucination_rate": 58.0,
+      "status": "WARN"
+    },
+    "status": "success"
+  },
+  {
+    "trace_name": "Copilot_MultiAgent_Workflow",
+    "total_latency_ms": 958.46,
+    "inputs": {
+      "query": "Analyze this router log for errors."
+    },
+    "events": [
+      {
+        "type": "agent_execution",
+        "agent": "NetworkAgent",
+        "status": "success",
+        "latency_ms": 159.74,
+        "timestamp": 1786011271.2350898
+      },
+      {
+        "type": "agent_execution",
+        "agent": "LogAnalysisAgent",
+        "status": "success",
+        "latency_ms": 159.74,
+        "timestamp": 1786011271.2350898
+      },
+      {
+        "type": "agent_execution",
+        "agent": "DocumentationAgent",
+        "status": "success",
+        "latency_ms": 159.74,
+        "timestamp": 1786011271.2350898
+      },
+      {
+        "type": "agent_execution",
+        "agent": "IncidentAgent",
+        "status": "success",
+        "latency_ms": 159.74,
+        "timestamp": 1786011271.2350898
+      },
+      {
+        "type": "agent_execution",
+        "agent": "ValidatorAgent",
+        "status": "success",
+        "latency_ms": 159.74,
+        "timestamp": 1786011271.2350898
+      },
+      {
+        "type": "agent_execution",
+        "agent": "PlannerAgent",
+        "status": "success",
+        "latency_ms": 159.74,
+        "timestamp": 1786011271.2350898
+      },
+      {
+        "type": "retriever_performance",
+        "query": "Analyze this router log for errors.",
+        "chunk_count": 21,
+        "avg_relevance_score": 0.0,
+        "latency_ms": 287.54,
+        "timestamp": 1786011271.2350898
+      }
+    ],
+    "eval_metrics": {
+      "ragas_score": 0.37,
+      "faithfulness": 0.47,
+      "context_precision": 0.0,
+      "context_recall": 0.0,
+      "answer_relevance": 1.0,
+      "citation_accuracy": 0.94,
+      "groundedness": 0.47,
+      "hallucination_rate": 53.0,
+      "status": "WARN"
+    },
+    "status": "success"
+  },
+  {
+    "trace_name": "Copilot_MultiAgent_Workflow",
+    "total_latency_ms": 76.15,
+    "inputs": {
+      "query": "Why is GigabitEthernet0/1 down?"
+    },
+    "events": [
+      {
+        "type": "agent_execution",
+        "agent": "LogAnalysisAgent",
+        "status": "success",
+        "latency_ms": 12.69,
+        "timestamp": 1786011488.8591588
+      },
+      {
+        "type": "agent_execution",
+        "agent": "NetworkAgent",
+        "status": "success",
+        "latency_ms": 12.69,
+        "timestamp": 1786011488.8591588
+      },
+      {
+        "type": "agent_execution",
+        "agent": "DocumentationAgent",
+        "status": "success",
+        "latency_ms": 12.69,
+        "timestamp": 1786011488.8591588
+      },
+      {
+        "type": "agent_execution",
+        "agent": "IncidentAgent",
+        "status": "success",
+        "latency_ms": 12.69,
+        "timestamp": 1786011488.8591588
+      },
+      {
+        "type": "agent_execution",
+        "agent": "ValidatorAgent",
+        "status": "success",
+        "latency_ms": 12.69,
+        "timestamp": 1786011488.8591588
+      },
+      {
+        "type": "agent_execution",
+        "agent": "PlannerAgent",
+        "status": "success",
+        "latency_ms": 12.69,
+        "timestamp": 1786011488.8591588
+      },
+      {
+        "type": "retriever_performance",
+        "query": "Why is GigabitEthernet0/1 down?",
+        "chunk_count": 13,
+        "avg_relevance_score": 0.6042,
+        "latency_ms": 22.84,
+        "timestamp": 1786011488.8591588
+      }
+    ],
+    "eval_metrics": {
+      "ragas_score": 0.7,
+      "faithfulness": 0.54,
+      "context_precision": 0.77,
+      "context_recall": 0.5,
+      "answer_relevance": 1.0,
+      "citation_accuracy": 1.0,
+      "groundedness": 0.54,
+      "hallucination_rate": 46.0,
+      "status": "WARN"
+    },
+    "status": "success"
   }
 ]

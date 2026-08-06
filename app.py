@@ -201,18 +201,35 @@ def main():
         from security import APIKeyEncrypter
         encrypted_key = APIKeyEncrypter.encrypt_api_key(api_key) if api_key else ""
 
+        # Clean & validate chat_history turns
+        clean_history = []
+        for msg in st.session_state["messages"]:
+            item = {
+                "role": str(msg.get("role", "user")),
+                "content": str(msg.get("content", ""))
+            }
+            if "confidence" in msg and msg["confidence"] is not None:
+                try:
+                    item["confidence"] = int(msg["confidence"])
+                except (ValueError, TypeError):
+                    pass
+            clean_history.append(item)
+
+        payload = {
+            "query": user_query,
+            "chat_history": clean_history,
+            "api_key": encrypted_key,
+            "model_choice": model_choice
+        }
+
         with st.status(f"Executing LangGraph Multi-Agent Workflow via FastAPI Backend ({model_choice})...", expanded=True) as status:
             st.write("🔒 **Step 1: Encrypting API Key & Validating Query Security (Prompt Injection Guard)**")
-            
-            payload = {
-                "query": user_query,
-                "chat_history": st.session_state["messages"],
-                "api_key": encrypted_key,
-                "model_choice": model_choice
-            }
+            import json
+            st.code(f"Outgoing Payload to {BACKEND_URL}/diagnose:\n{json.dumps(payload, indent=2)}", language="json")
 
             try:
                 res = requests.post(f"{BACKEND_URL}/diagnose", json=payload, timeout=120)
+
                 if res.status_code == 200:
                     data = res.json()
                     executed_chain = " ➔ ".join(data.get("executed_agents", []))
@@ -231,7 +248,8 @@ def main():
                         "validation": validation_results
                     }
                     st.session_state["messages"].append({"role": "user", "content": user_query})
-                    st.session_state["messages"].append({"role": "assistant", "content": final_response, "confidence": confidence_score})
+                    st.session_state["messages"].append({"role": "assistant", "content": final_response})
+
                 elif res.status_code == 400:
                     err_msg = res.json().get("detail", res.text)
                     st.error(f"🛡️ Security Block: {err_msg}")

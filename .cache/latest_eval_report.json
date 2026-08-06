@@ -1,14 +1,14 @@
 {
-  "query": "What are the system management features available on Cisco Catalyst 9300 switches?",
+  "query": "Why is GigabitEthernet0/1 down?",
   "metrics": {
-    "ragas_score": 0.42,
-    "faithfulness": 0.47,
-    "context_precision": 0.1,
-    "context_recall": 0.11,
+    "ragas_score": 0.7,
+    "faithfulness": 0.54,
+    "context_precision": 0.77,
+    "context_recall": 0.5,
     "answer_relevance": 1.0,
-    "citation_accuracy": 0.94,
-    "groundedness": 0.47,
-    "hallucination_rate": 53.0,
+    "citation_accuracy": 1.0,
+    "groundedness": 0.54,
+    "hallucination_rate": 46.0,
     "status": "WARN"
   }
 }
