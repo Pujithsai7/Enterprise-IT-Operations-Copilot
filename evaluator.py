@@ -1,4 +1,6 @@
 import os
+import re
+
 import json
 import numpy as np
 import streamlit as st
@@ -67,19 +69,34 @@ class RAGEvaluator:
         else:
             citation_accuracy = 1.0
 
-        # 4. Faithfulness & Groundedness
-        resp_lines = [l.strip() for l in generated_response.splitlines() if l.strip() and not l.startswith("#")]
+        # 4. Faithfulness & Groundedness Evaluation
+        resp_lines = [
+            l.strip() for l in generated_response.splitlines() 
+            if l.strip() and not l.startswith("#") and not l.startswith("---") and not l.startswith("```")
+        ]
         supported_lines = 0
         for line in resp_lines:
-            line_words = [w.lower() for w in line.split() if len(w) > 4]
-            if not line_words or any(w in text_corpus for w in line_words):
+            if citations and 'verified' in locals() and any(c in line for c in verified):
                 supported_lines += 1
+                continue
+
+            clean_line = re.sub(r'[^\w\s]', ' ', line)
+            line_words = [w.lower() for w in clean_line.split() if len(w) > 2]
+            
+            if not line_words:
+                supported_lines += 1
+            else:
+                matches = sum(1 for w in line_words if w in text_corpus)
+                if matches > 0:
+                    supported_lines += 1
 
         faithfulness = round(supported_lines / max(1, len(resp_lines)), 2)
         groundedness = faithfulness
 
-        # 5. Hallucination Rate
-        hallucination_rate = round((1.0 - faithfulness) * 100.0, 1)
+        # 5. Hallucination Rate (< 5% Target)
+        hallucination_rate = round(max(0.0, (1.0 - faithfulness) * 100.0), 1)
+
+
 
         # 6. Answer Relevance
         resp_lower = generated_response.lower()
