@@ -41,13 +41,13 @@ document_registry = DocumentRegistry()
 class ChatMessage(BaseModel):
     role: str
     content: str
-    confidence: Optional[int] = None
 
 class DiagnoseRequest(BaseModel):
     query: str
-    chat_history: Optional[List[ChatMessage]] = []
+    chat_history: List[ChatMessage] = []
     api_key: Optional[str] = None
     model_choice: Optional[str] = "kimi-k2.7-code:cloud"
+
 
 
 

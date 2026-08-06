@@ -201,19 +201,16 @@ def main():
         from security import APIKeyEncrypter
         encrypted_key = APIKeyEncrypter.encrypt_api_key(api_key) if api_key else ""
 
-        # Clean & validate chat_history turns
-        clean_history = []
-        for msg in st.session_state["messages"]:
-            item = {
+        # Standardize chat_history to contain only standard role and content fields
+        clean_history = [
+            {
                 "role": str(msg.get("role", "user")),
                 "content": str(msg.get("content", ""))
             }
-            if "confidence" in msg and msg["confidence"] is not None:
-                try:
-                    item["confidence"] = int(msg["confidence"])
-                except (ValueError, TypeError):
-                    pass
-            clean_history.append(item)
+            for msg in st.session_state["messages"]
+            if isinstance(msg, dict) and "role" in msg and "content" in msg
+        ]
+
 
         payload = {
             "query": user_query,
